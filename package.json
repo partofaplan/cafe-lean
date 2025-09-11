@@ -1,0 +1,28 @@
+{
+  "name": "cafe-lean",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/partofaplan/cafe-lean.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/partofaplan/cafe-lean/issues"
+  },
+  "homepage": "https://github.com/partofaplan/cafe-lean#readme",
+  "dependencies": {
+    "express": "^5.1.0",
+    "nanoid": "^5.1.5",
+    "socket.io": "^4.8.1"
+  }
+}

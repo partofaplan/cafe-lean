@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lean Coffee Board</title>
+    <style>
+      :root { --bg: #0b1020; --panel: #0f1630; --line: #23305f; --text: #f2f5ff; --muted:#a3b0d4; --accent: #60a5fa; }
+      html, body { height: 100%; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+      .wrap { display: flex; flex-direction: column; height: 100%; }
+      header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+      header .title { font-weight: 600; }
+      .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 12px; flex: 1; }
+      .col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display:flex; flex-direction:column; }
+      .col h2 { font-size: 18px; margin: 12px; color: var(--muted); }
+      .list { padding: 0 12px 12px; overflow-y:auto; }
+      .card { background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; }
+      .votes { color: var(--accent); font-weight: 600; }
+      .footer { padding: 8px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+      @media (max-width: 900px){ .cols { grid-template-columns: 1fr; } }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="title">Lean Coffee — Board <span id="code"></span></div>
+        <div class="muted">Read-only display</div>
+      </header>
+      <div class="cols">
+        <div class="col"><h2>To Discuss</h2><div id="todo" class="list"></div></div>
+        <div class="col"><h2>Discussing</h2><div id="doing" class="list"></div></div>
+        <div class="col"><h2>Done</h2><div id="done" class="list"></div></div>
+      </div>
+      <div class="footer">
+        Participants: <span id="participants">0</span> • Votes cast: <span id="votes">0</span>
+      </div>
+    </div>
+
+    <script>
+      const meetingId = location.pathname.split('/').pop().toUpperCase();
+      document.getElementById('code').textContent = `(${meetingId})`;
+      const socket = io();
+      socket.emit('join', { meetingId, role: 'viewer' });
+
+      function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
+
+      socket.on('state', (state) => {
+        const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
+        for (const k of Object.keys(cols)) cols[k].innerHTML = '';
+        const byCol = { todo: [], doing: [], done: [] };
+        for (const t of state.topics) byCol[t.column||'todo'].push(t);
+        const sort = arr => arr.sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
+        for (const col of ['todo','doing','done']){
+          for (const t of sort(byCol[col])){
+            const c = el({ className: 'card' });
+            const title = el({ tag: 'div', text: t.title });
+            const votes = el({ tag: 'div', className: 'votes' });
+            votes.textContent = `▲ ${t.votes || 0}`;
+            c.appendChild(title); c.appendChild(votes);
+            cols[col].appendChild(c);
+          }
+        }
+        document.getElementById('participants').textContent = state.totals?.participants ?? 0;
+        document.getElementById('votes').textContent = state.totals?.votesCast ?? 0;
+      });
+    </script>
+  </body>
+  </html>
+

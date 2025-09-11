@@ -1,0 +1,97 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Join Lean Coffee</title>
+    <style>
+      :root { --bg: #0b1020; --panel: #0f1630; --line: #23305f; --text: #f2f5ff; --muted:#a3b0d4; --accent: #60a5fa; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+      header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap: 12px; }
+      .container { max-width: 800px; margin: 0 auto; padding: 16px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 16px 0; }
+      .row { display:flex; gap: 8px; align-items:center; }
+      input[type="text"] { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #33407a; background: #0f1630; color: #fff; }
+      button { font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #3759a3; background:#13204a; color:#fff; cursor:pointer; }
+      .list .item { display:flex; justify-content:space-between; align-items:center; background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; }
+      .votes { color: var(--accent); font-weight: 600; }
+      .muted { color: var(--muted); font-size: 14px; }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <header>
+      <div>Join — <span id="code"></span></div>
+      <div class="muted">Votes remaining: <span id="remaining">0</span></div>
+    </header>
+    <div class="container">
+      <div class="card">
+        <div class="row">
+          <input id="topicInput" type="text" placeholder="Propose a topic" maxlength="200" />
+          <button id="submitBtn">Submit</button>
+        </div>
+        <div class="muted" style="margin-top:6px;">Max 200 characters. Everyone can see your topic title.</div>
+      </div>
+      <div class="card">
+        <h3>Topics</h3>
+        <div id="list" class="list"></div>
+      </div>
+    </div>
+
+    <script>
+      const meetingId = location.pathname.split('/').pop().toUpperCase();
+      document.getElementById('code').textContent = meetingId;
+      const socket = io();
+      const pidKey = `participant:${meetingId}`;
+      let participantId = localStorage.getItem(pidKey);
+      if (!participantId){ participantId = Math.random().toString(36).slice(2,10); localStorage.setItem(pidKey, participantId); }
+      socket.emit('join', { meetingId, role: 'participant', id: participantId });
+
+      const topicInput = document.getElementById('topicInput');
+      document.getElementById('submitBtn').onclick = () => {
+        const title = topicInput.value.trim(); if(!title) return;
+        socket.emit('submit_topic', { meetingId, title, authorId: participantId });
+        topicInput.value = '';
+      };
+
+      let maxVotes = 3; let voted = new Set();
+      function refreshRemaining(){ document.getElementById('remaining').textContent = Math.max(0, maxVotes - voted.size); }
+
+      function render(state){
+        maxVotes = state?.config?.MAX_VOTES_PER_PARTICIPANT ?? 3;
+        const list = document.getElementById('list'); list.innerHTML = '';
+        const items = state.topics.slice().sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
+        for (const t of items){
+          const div = document.createElement('div'); div.className = 'item';
+          const left = document.createElement('div'); left.textContent = t.title; div.appendChild(left);
+          const right = document.createElement('div');
+          const btn = document.createElement('button');
+          const has = voted.has(t.id);
+          btn.textContent = has ? 'Unvote' : 'Vote';
+          btn.onclick = () => {
+            if (voted.has(t.id)) {
+              socket.emit('unvote', { meetingId, participantId, topicId: t.id });
+              voted.delete(t.id); refreshRemaining();
+            } else {
+              if (voted.size >= maxVotes) { alert('No votes remaining'); return; }
+              socket.emit('vote', { meetingId, participantId, topicId: t.id });
+              voted.add(t.id); refreshRemaining();
+            }
+          };
+          right.appendChild(btn);
+          const votes = document.createElement('span'); votes.className = 'votes'; votes.textContent = ` ▲ ${t.votes || 0}`;
+          right.appendChild(votes);
+          div.appendChild(right);
+          list.appendChild(div);
+        }
+        refreshRemaining();
+      }
+
+      socket.on('state', (state) => {
+        // Try to rebuild local voted set by comparing counts isn't reliable; preserve local memory only (MVP)
+        render(state);
+      });
+    </script>
+  </body>
+  </html>
+

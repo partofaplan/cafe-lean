@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lean Coffee Admin</title>
+    <style>
+      :root { --bg: #0b1020; --panel: #0f1630; --line: #23305f; --text: #f2f5ff; --muted:#a3b0d4; --accent: #34d399; --danger:#ef4444; --primary:#60a5fa; }
+      html, body { height: 100%; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+      .wrap { display: flex; flex-direction: column; height: 100%; }
+      header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; gap: 12px; justify-content:space-between; }
+      header .title { font-weight: 600; }
+      .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 12px; flex: 1; }
+      .col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display:flex; flex-direction:column; }
+      .col h2 { font-size: 18px; margin: 12px; color: var(--muted); display:flex; justify-content:space-between; align-items:center; }
+      .list { padding: 0 12px 12px; overflow-y:auto; min-height: 100px; }
+      .card { background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; display:flex; justify-content:space-between; gap: 10px; align-items:center; }
+      .card .left { display:flex; flex-direction:column; gap:6px; }
+      .votes { color: var(--primary); font-weight: 600; }
+      .btn { font-size: 14px; padding: 6px 10px; border-radius: 8px; border:1px solid #3759a3; background:#13204a; color:#fff; cursor:pointer; }
+      .btn.primary { background: #2563eb; border-color: #2563eb; }
+      .btn.danger { background: #7f1d1d; border-color: #ef4444; }
+      .btnbar { display:flex; gap: 6px; flex-wrap: wrap; }
+      .row { display:flex; gap: 8px; align-items:center; }
+      input[type="text"] { font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid #33407a; background: #0f1630; color: #fff; }
+      .muted { color: var(--muted); font-size: 14px; }
+      @media (max-width: 900px){ .cols { grid-template-columns: 1fr; } }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="title">Admin — <span id="code"></span></div>
+        <div class="row">
+          <input id="token" type="text" placeholder="Admin token" />
+          <button id="saveToken" class="btn">Save</button>
+        </div>
+      </header>
+      <div class="cols">
+        <div class="col"><h2>To Discuss</h2><div id="todo" class="list"></div></div>
+        <div class="col"><h2>Discussing</h2><div id="doing" class="list"></div></div>
+        <div class="col"><h2>Done</h2><div id="done" class="list"></div></div>
+      </div>
+      <div style="padding:12px; border-top:1px solid var(--line);" class="muted">Only admins can move/delete topics. Save the admin token provided when creating the meeting.</div>
+    </div>
+
+    <script>
+      const meetingId = location.pathname.split('/').pop().toUpperCase();
+      document.getElementById('code').textContent = meetingId;
+      const socket = io();
+      const tokenInput = document.getElementById('token');
+      const saved = localStorage.getItem(`adminToken:${meetingId}`);
+      if (saved) tokenInput.value = saved;
+      document.getElementById('saveToken').onclick = () => {
+        localStorage.setItem(`adminToken:${meetingId}`, tokenInput.value.trim());
+        alert('Saved admin token for this device.');
+      };
+
+      socket.emit('join', { meetingId, role: 'admin', adminToken: tokenInput.value.trim() || null });
+
+      const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
+      function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
+      function move(topicId, column){ const adminToken = tokenInput.value.trim(); socket.emit('move_topic', { meetingId, topicId, column, adminToken }); }
+      function del(topicId){ const adminToken = tokenInput.value.trim(); if(!confirm('Delete topic?')) return; socket.emit('delete_topic', { meetingId, topicId, adminToken }); }
+
+      socket.on('state', (state) => {
+        for (const k of Object.keys(cols)) cols[k].innerHTML = '';
+        const byCol = { todo: [], doing: [], done: [] };
+        for (const t of state.topics) byCol[t.column||'todo'].push(t);
+        const sort = arr => arr.sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
+        for (const col of ['todo','doing','done']){
+          for (const t of sort(byCol[col])){
+            const c = el({ className: 'card' });
+            const left = el({ className:'left' });
+            left.appendChild(el({ text: t.title }));
+            left.appendChild(el({ className:'votes', text: `▲ ${t.votes || 0}` }));
+            const bar = el({ className:'btnbar' });
+            if (t.column !== 'todo') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'To Discuss'}), { onclick: () => move(t.id, 'todo') }));
+            if (t.column !== 'doing') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'Discussing'}), { onclick: () => move(t.id, 'doing') }));
+            if (t.column !== 'done') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'Done'}), { onclick: () => move(t.id, 'done') }));
+            bar.appendChild(Object.assign(el({ tag:'button', className:'btn danger', text:'Delete'}), { onclick: () => del(t.id) }));
+            c.appendChild(left); c.appendChild(bar);
+            cols[col].appendChild(c);
+          }
+        }
+      });
+    </script>
+  </body>
+  </html>
+

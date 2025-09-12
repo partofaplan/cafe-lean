@@ -30,7 +30,7 @@
           <input id="topicInput" type="text" placeholder="Propose a topic" maxlength="200" />
           <button id="submitBtn">Submit</button>
         </div>
-        <div class="muted" style="margin-top:6px;">Max 200 characters. Everyone can see your topic title.</div>
+        <div class="muted" id="submitHelp" style="margin-top:6px;">Max 200 characters. Everyone can see your topic title.</div>
       </div>
       <div class="card">
         <h3>Topics</h3>
@@ -66,7 +66,11 @@
         const m = Math.floor(rem/60), s = rem%60;
         phaseTime.textContent = `${m}:${String(s).padStart(2,'0')}`;
         const submitBtn = document.getElementById('submitBtn');
-        submitBtn.disabled = currentPhase !== 'create';
+        const submitHelp = document.getElementById('submitHelp');
+        const allowed = currentPhase === 'create';
+        submitBtn.disabled = !allowed;
+        submitBtn.textContent = allowed ? 'Submit' : 'Submit (Create phase only)';
+        submitHelp.textContent = allowed ? 'Max 200 characters. Everyone can see your topic title.' : 'Topic submission opens during the Create phase. Please wait for the facilitator to start it.';
       }
       function startTicker(){ if (phaseTicker) clearInterval(phaseTicker); phaseTicker = setInterval(updatePhaseUI, 500); }
 

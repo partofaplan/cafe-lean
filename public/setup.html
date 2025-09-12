@@ -64,6 +64,7 @@
         </div>
         <div class="row" style="margin-top:14px;">
           <button id="saveDur">Save Timers</button>
+          <button id="startCreate" class="btn">Start Create Phase</button>
         </div>
       </div>
       <div class="card">
@@ -94,6 +95,10 @@
         socket.emit('set_durations', { meetingId, adminToken, create: durCreate.value, voting: durVote.value, discuss: durDiscuss.value });
         alert('Saved timers');
       };
+      document.getElementById('startCreate').onclick = () => {
+        socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: Number(durCreate.value)||undefined });
+        alert('Create phase started');
+      };
 
       socket.on('state', (state) => {
         if (state.durations){
@@ -105,4 +110,3 @@
     </script>
   </body>
   </html>
-

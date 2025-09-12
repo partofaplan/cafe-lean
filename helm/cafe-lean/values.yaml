@@ -13,8 +13,7 @@ service:
 ingress:
   enabled: true
   className: traefik
-  # Default to sslip.io pointing to localhost; override per environment
-  host: cafe-lean.10.0.31.9.sslip.io
+  host: cafe-lean.192.168.5.78.sslip.io
   annotations: {}
   tls:
     enabled: false

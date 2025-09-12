@@ -48,6 +48,11 @@ app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
 });
 
+// Lightweight health endpoint for Cloud Run or probes
+app.get('/healthz', (req, res) => {
+  res.status(200).send('ok');
+});
+
 // Create a meeting
 app.post('/api/create', (req, res) => {
   const meetingId = ID();

@@ -108,6 +108,8 @@
 
       socket.on('state', (state) => { latestState = state; render(state); });
       socket.on('your_votes', ({ topicIds, max }) => { voted = new Set(topicIds || []); if (typeof max === 'number') maxVotes = max; if (latestState) render(latestState); else refreshRemaining(); });
+      // Soft update when a new topic is added so everyone stays in sync
+      socket.on('topic_added', () => { if (latestState) render(latestState); });
     </script>
   </body>
   </html>

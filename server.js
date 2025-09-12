@@ -214,6 +214,7 @@ io.on('connection', (socket) => {
     };
     meeting.topics.push(topic);
     io.to(mid).emit('state', meetingStateForClient(meeting));
+    io.to(mid).emit('topic_added', { topicId: topic.id });
     persist();
   });
 

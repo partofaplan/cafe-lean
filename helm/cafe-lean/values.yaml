@@ -34,6 +34,14 @@ tolerations: []
 
 env:
   # Additional environment variables for the container
-  # MAX_VOTES: "3"
-  {}
+  MAX_VOTES: "3"
+  DEFAULT_CREATE_MIN: "5"
+  DEFAULT_VOTING_MIN: "3"
+  DEFAULT_DISCUSS_MIN: "5"
 
+persistence:
+  enabled: false
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  storageClass: ""

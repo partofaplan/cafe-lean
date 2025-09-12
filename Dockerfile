@@ -17,6 +17,9 @@ RUN npm ci --omit=dev
 COPY public ./public
 COPY server.js ./server.js
 
+# Ensure non-root user can write to data dir
+RUN mkdir -p /app/data && chown -R node:node /app
+
 # Harden: run as non-root
 USER node
 
@@ -27,4 +30,3 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD curl -fsS http://localhost:3000/ || exit 1
 
 CMD ["node", "server.js"]
-

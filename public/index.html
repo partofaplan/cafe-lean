@@ -58,7 +58,7 @@
           }
           const data = await res.json();
           try { localStorage.setItem(`adminToken:${data.meetingId}`, data.adminToken); } catch {}
-          location.href = `/admin/${data.meetingId}`;
+          location.href = `/setup/${data.meetingId}`;
         } catch (e) {
           alert('Network error creating meeting');
         }

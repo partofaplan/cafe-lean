@@ -23,58 +23,50 @@
     <div class="container">
       <h1>Lean Coffee</h1>
       <div class="card">
-        <h2>Create a meeting</h2>
-        <p class="muted">Creates a code, admin link, and join link.</p>
-        <button id="createBtn">Create</button>
-        <div id="createResult" class="muted" style="margin-top:12px;"></div>
-      </div>
-      <div class="card">
-        <h2>Join a meeting</h2>
-        <div class="row">
-          <input id="joinCode" type="text" placeholder="Enter meeting code (e.g. 7G3XQK)" />
-          <button id="joinBoard">Open Board</button>
-          <button id="joinAsParticipant" class="secondary">Join as Participant</button>
+        <h2>Welcome</h2>
+        <p class="muted">Start a Lean Coffee or join one that’s already running.</p>
+        <div class="row" style="margin-top:8px;">
+          <button id="startBtn">Start Meeting</button>
+          <button id="joinBtn" class="secondary">Join Meeting</button>
         </div>
       </div>
-      <p class="muted">Tip: Open the board on a TV or shared screen. Use the admin link on your phone to move topics. Participants open the join link to submit topics and vote.</p>
+      <p class="muted">Tip: Use the admin screen on your phone to move topics; display the board on a shared screen.</p>
     </div>
 
     <script>
-      const createBtn = document.getElementById('createBtn');
-      const createResult = document.getElementById('createResult');
-      createBtn.addEventListener('click', async () => {
-        createBtn.disabled = true;
+      const startBtn = document.getElementById('startBtn');
+      const joinBtn = document.getElementById('joinBtn');
+
+      function norm(code){ return (code || '').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+
+      startBtn.addEventListener('click', async () => {
+        const input = prompt('Enter a meeting code (4-12 letters/numbers):');
+        const meetingId = norm(input);
+        if (!meetingId || meetingId.length < 4 || meetingId.length > 12) return alert('Invalid code. Use 4-12 letters/numbers.');
         try {
-          const res = await fetch('/api/create', { method: 'POST' });
+          const res = await fetch('/api/create-with-id', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ meetingId })
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(()=>({}));
+            return alert(data.error || 'Failed to create meeting');
+          }
           const data = await res.json();
-          // Save admin token locally so admin page can auto-auth
           try { localStorage.setItem(`adminToken:${data.meetingId}`, data.adminToken); } catch {}
-          createResult.innerHTML = `
-            <div>Meeting Code: <code>${data.meetingId}</code></div>
-            <div class="links">
-              <div>Board: <a href="${data.boardUrl}" target="_blank">${location.origin + data.boardUrl}</a></div>
-              <div>Admin: <a href="${data.adminUrl}" target="_blank">${location.origin + data.adminUrl}</a></div>
-              <div>Join: <a href="${data.joinUrl}" target="_blank">${location.origin + data.joinUrl}</a></div>
-            </div>
-          `;
+          location.href = `/admin/${data.meetingId}`;
         } catch (e) {
-          createResult.textContent = 'Failed to create meeting.';
-        } finally {
-          createBtn.disabled = false;
+          alert('Network error creating meeting');
         }
       });
 
-      const joinCode = document.getElementById('joinCode');
-      function normalized() { return (joinCode.value || '').trim().toUpperCase(); }
-      document.getElementById('joinBoard').addEventListener('click', () => {
-        const code = normalized(); if (!code) return;
-        location.href = `/board/${code}`;
-      });
-      document.getElementById('joinAsParticipant').addEventListener('click', () => {
-        const code = normalized(); if (!code) return;
-        location.href = `/join/${code}`;
+      joinBtn.addEventListener('click', () => {
+        const input = prompt('Enter meeting code to join:');
+        const meetingId = norm(input);
+        if (!meetingId) return;
+        location.href = `/join/${meetingId}`;
       });
     </script>
   </body>
   </html>
-

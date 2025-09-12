@@ -52,6 +52,35 @@ app.post('/api/create', (req, res) => {
   });
 });
 
+// Create a meeting with a user-provided ID
+app.post('/api/create-with-id', (req, res) => {
+  let raw = (req.body.meetingId || '').toString();
+  // Normalize: uppercase alphanumeric only
+  const normalized = raw.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!normalized || normalized.length < 4 || normalized.length > 12) {
+    return res.status(400).json({ error: 'Code must be 4-12 letters/numbers' });
+  }
+  if (meetings.has(normalized)) {
+    return res.status(409).json({ error: 'Meeting code already exists' });
+  }
+  const adminToken = ID() + ID();
+  meetings.set(normalized, {
+    id: normalized,
+    adminToken,
+    topics: [],
+    participants: new Set(),
+    votesByParticipant: new Map(),
+    createdAt: Date.now(),
+  });
+  res.json({
+    meetingId: normalized,
+    adminToken,
+    boardUrl: `/board/${normalized}`,
+    joinUrl: `/join/${normalized}`,
+    adminUrl: `/admin/${normalized}`,
+  });
+});
+
 // Basic route guards to ensure meeting exists
 app.get(['/board/:id', '/admin/:id', '/join/:id'], (req, res, next) => {
   const id = req.params.id.toUpperCase();
@@ -191,7 +220,6 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`Lean Coffee running at http://localhost:${PORT}`);
 });
-

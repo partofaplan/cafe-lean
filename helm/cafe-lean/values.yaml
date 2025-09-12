@@ -1,0 +1,39 @@
+image:
+  repository: cafe-lean
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: traefik
+  # Default to sslip.io pointing to localhost; override per environment
+  host: cafe-lean.127.0.0.1.sslip.io
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+nodeSelector: {}
+affinity: {}
+tolerations: []
+
+env:
+  # Additional environment variables for the container
+  # MAX_VOTES: "3"
+  {}
+

@@ -1,0 +1,21 @@
+1. Chart: {{ .Chart.Name }} v{{ .Chart.Version }}
+   App: {{ .Chart.AppVersion }}
+
+2. Access
+{{- if .Values.ingress.enabled }}
+   - Via Ingress (Traefik):
+     http://{{ .Values.ingress.host }}/
+     Admin: http://{{ .Values.ingress.host }}/admin/<MEETING_CODE>
+     Join:  http://{{ .Values.ingress.host }}/join/<MEETING_CODE>
+{{- else }}
+   - Service (ClusterIP). Port-forward:
+     kubectl port-forward svc/{{ include "cafe-lean.fullname" . }} 3000:{{ .Values.service.port }}
+     Then open: http://localhost:3000
+{{- end }}
+
+3. Image
+   Ensure the image {{ .Values.image.repository }}:{{ .Values.image.tag }} is available to your cluster.
+   For kind/minikube, load the image after building locally:
+     - kind:    kind load docker-image {{ .Values.image.repository }}:{{ .Values.image.tag }}
+     - minikube: minikube image load {{ .Values.image.repository }}:{{ .Values.image.tag }}
+

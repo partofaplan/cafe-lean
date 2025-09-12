@@ -49,3 +49,28 @@ services:
 - `MAX_VOTES`: votes per participant (default `3`)
 
 Data is in-memory for this MVP; a restart clears meetings. For production, add a backing store (Redis/Postgres) and persist sessions.
+
+## Helm (Kubernetes)
+
+This repo includes a Helm chart for deploying with Traefik Ingress and an sslip.io endpoint.
+
+- Build and tag your image locally:
+  - `docker build -t cafe-lean:latest .`
+- Load the image to your cluster (optional for kind/minikube):
+  - kind: `kind load docker-image cafe-lean:latest`
+  - minikube: `minikube image load cafe-lean:latest`
+- Install the chart:
+  - `helm install lean ./helm/cafe-lean \
+      --set image.repository=cafe-lean \
+      --set image.tag=latest \
+      --set ingress.enabled=true \
+      --set ingress.className=traefik \
+      --set ingress.host=cafe-lean.127.0.0.1.sslip.io`
+
+Then open: `http://cafe-lean.127.0.0.1.sslip.io`
+
+Notes:
+- Ensure Traefik is installed and your cluster can resolve the sslip.io host to the node/ingress IP.
+- For a public IP, replace `127.0.0.1` with your ingress IP (e.g., `10.0.0.5.sslip.io`).
+- Enable TLS if your Traefik is configured with ACME:
+  - `--set ingress.tls.enabled=true --set ingress.tls.secretName=<existingSecret>`

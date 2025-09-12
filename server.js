@@ -26,6 +26,20 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
+// Minimal cookie parser
+function parseCookie(str) {
+  const out = {};
+  if (!str) return out;
+  str.split(';').forEach(p => {
+    const i = p.indexOf('=');
+    if (i === -1) return;
+    const k = p.slice(0, i).trim();
+    const v = p.slice(i + 1).trim();
+    out[k] = decodeURIComponent(v);
+  });
+  return out;
+}
+
 // Simple landing page to create/join
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/index.html');
@@ -97,6 +111,14 @@ app.get('/admin/:id', (req, res) => {
   res.sendFile(__dirname + '/public/admin.html');
 });
 app.get('/join/:id', (req, res) => {
+  const id = (req.params.id || '').toUpperCase();
+  const cookieName = `clid_${id}`;
+  const cookies = parseCookie(req.headers.cookie || '');
+  if (!cookies[cookieName]) {
+    const pid = TOPIC_ID();
+    const cookie = `${cookieName}=${encodeURIComponent(pid)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    res.setHeader('Set-Cookie', cookie);
+  }
   res.sendFile(__dirname + '/public/join.html');
 });
 
@@ -133,11 +155,18 @@ io.on('connection', (socket) => {
       return;
     }
     joinedMeetingId = mid;
-    participantId = id || socket.id; // basic identity
+    // Prefer server-issued cookie per meeting for participant identity
+    const cookies = parseCookie(socket.handshake?.headers?.cookie || '');
+    const cookiePid = cookies[`clid_${mid}`];
+    participantId = role === 'participant' ? (cookiePid || id || socket.id) : (id || socket.id);
     isAdmin = role === 'admin' && adminToken === meeting.adminToken;
     meeting.participants.add(participantId);
     socket.join(mid);
     socket.emit('state', meetingStateForClient(meeting));
+    if (role === 'participant') {
+      const yourVotes = meeting.votesByParticipant.get(participantId) || new Set();
+      socket.emit('your_votes', { topicIds: Array.from(yourVotes), max: MAX_VOTES_PER_PARTICIPANT });
+    }
   });
 
   socket.on('submit_topic', ({ meetingId, title, authorId }) => {
@@ -163,15 +192,21 @@ io.on('connection', (socket) => {
     if (!meeting) return;
     const topic = meeting.topics.find(t => t.id === topicId);
     if (!topic) return;
-    const votes = meeting.votesByParticipant.get(pid) || new Set();
+    // Use server-known participant if available
+    const actualPid = (joinedMeetingId === mid && participantId) ? participantId : pid;
+    const votes = meeting.votesByParticipant.get(actualPid) || new Set();
     if (votes.has(topicId)) return; // already voted for this topic
     if (votes.size >= MAX_VOTES_PER_PARTICIPANT) return; // limit reached
 
     votes.add(topicId);
-    meeting.votesByParticipant.set(pid, votes);
+    meeting.votesByParticipant.set(actualPid, votes);
     topic.votes = (topic.votes || 0) + 1;
-    topic.voters.add(pid);
+    topic.voters.add(actualPid);
     io.to(mid).emit('state', meetingStateForClient(meeting));
+    if (actualPid) {
+      const yourVotes = meeting.votesByParticipant.get(actualPid) || new Set();
+      socket.emit('your_votes', { topicIds: Array.from(yourVotes), max: MAX_VOTES_PER_PARTICIPANT });
+    }
   });
 
   socket.on('unvote', ({ meetingId, participantId: pid, topicId }) => {
@@ -180,12 +215,17 @@ io.on('connection', (socket) => {
     if (!meeting) return;
     const topic = meeting.topics.find(t => t.id === topicId);
     if (!topic) return;
-    const votes = meeting.votesByParticipant.get(pid);
+    const actualPid = (joinedMeetingId === mid && participantId) ? participantId : pid;
+    const votes = meeting.votesByParticipant.get(actualPid);
     if (!votes || !votes.has(topicId)) return;
     votes.delete(topicId);
     topic.votes = Math.max(0, (topic.votes || 0) - 1);
-    topic.voters.delete(pid);
+    topic.voters.delete(actualPid);
     io.to(mid).emit('state', meetingStateForClient(meeting));
+    if (actualPid) {
+      const yourVotes = meeting.votesByParticipant.get(actualPid) || new Set();
+      socket.emit('your_votes', { topicIds: Array.from(yourVotes), max: MAX_VOTES_PER_PARTICIPANT });
+    }
   });
 
   socket.on('move_topic', ({ meetingId, topicId, column, adminToken }) => {

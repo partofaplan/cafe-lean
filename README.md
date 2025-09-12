@@ -50,6 +50,17 @@ services:
 
 Data is in-memory for this MVP; a restart clears meetings. For production, add a backing store (Redis/Postgres) and persist sessions.
 
+## Meeting Phases and Timers
+
+- Phases: Create Topics, Voting, Discussing.
+- Admin controls (on `/admin/:MEETING_ID`):
+  - Set timer durations (minutes) for each phase.
+  - Start Create/Voting phases, start discussion for a selected topic, add +1 minute, or end current phase.
+- Participants:
+  - Can submit topics only during Create phase.
+  - Can vote only during Voting phase (3 votes per participant).
+  - See the current phase and countdown.
+
 ## Helm (Kubernetes)
 
 This repo includes a Helm chart for deploying with Traefik Ingress and an sslip.io endpoint.

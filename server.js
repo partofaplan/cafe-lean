@@ -55,6 +55,10 @@ app.post('/api/create', (req, res) => {
     topics: [],
     participants: new Set(),
     votesByParticipant: new Map(),
+    durations: { create: 5, voting: 3, discuss: 5 }, // minutes
+    phase: null, // 'create' | 'voting' | 'discuss' | null
+    phaseEndsAt: null,
+    currentTopicId: null,
     createdAt: Date.now(),
   });
   res.json({
@@ -84,6 +88,10 @@ app.post('/api/create-with-id', (req, res) => {
     topics: [],
     participants: new Set(),
     votesByParticipant: new Map(),
+    durations: { create: 5, voting: 3, discuss: 5 },
+    phase: null,
+    phaseEndsAt: null,
+    currentTopicId: null,
     createdAt: Date.now(),
   });
   res.json({
@@ -137,7 +145,12 @@ function meetingStateForClient(meeting) {
       participants: meeting.participants.size,
       votesCast: Array.from(meeting.votesByParticipant.values()).reduce((acc, set) => acc + set.size, 0)
     },
-    config: { MAX_VOTES_PER_PARTICIPANT }
+    config: { MAX_VOTES_PER_PARTICIPANT },
+    phase: meeting.phase,
+    phaseEndsAt: meeting.phaseEndsAt,
+    now: Date.now(),
+    durations: meeting.durations,
+    currentTopicId: meeting.currentTopicId,
   };
 }
 
@@ -173,6 +186,7 @@ io.on('connection', (socket) => {
     const mid = (meetingId || '').toUpperCase();
     const meeting = meetings.get(mid);
     if (!meeting || !title || !authorId) return;
+    if (meeting.phase && meeting.phase !== 'create') return; // only during create phase
     const topic = {
       id: TOPIC_ID(),
       title: String(title).slice(0, 200),
@@ -190,6 +204,7 @@ io.on('connection', (socket) => {
     const mid = (meetingId || '').toUpperCase();
     const meeting = meetings.get(mid);
     if (!meeting) return;
+    if (meeting.phase !== 'voting') return; // only during voting phase
     const topic = meeting.topics.find(t => t.id === topicId);
     if (!topic) return;
     // Use server-known participant if available
@@ -238,6 +253,11 @@ io.on('connection', (socket) => {
     const topic = meeting.topics.find(t => t.id === topicId);
     if (!topic) return;
     topic.column = column;
+    if (column === 'doing') {
+      meeting.currentTopicId = topic.id;
+    } else if (meeting.currentTopicId === topic.id) {
+      meeting.currentTopicId = null;
+    }
     io.to(mid).emit('state', meetingStateForClient(meeting));
   });
 
@@ -252,11 +272,77 @@ io.on('connection', (socket) => {
     for (const set of meeting.votesByParticipant.values()) {
       if (set.has(topicId)) set.delete(topicId);
     }
+    if (meeting.currentTopicId === topicId) {
+      meeting.currentTopicId = null;
+    }
     io.to(mid).emit('state', meetingStateForClient(meeting));
   });
 
   socket.on('disconnect', () => {
     // We keep participant counts simple and do not prune on disconnect for MVP
+  });
+
+  // Admin: set durations in minutes
+  socket.on('set_durations', ({ meetingId, adminToken, create, voting, discuss }) => {
+    const mid = (meetingId || '').toUpperCase();
+    const meeting = meetings.get(mid);
+    if (!meeting) return;
+    const authorized = adminToken && adminToken === meeting.adminToken;
+    if (!authorized) return;
+    function toMin(v, fallback) {
+      const n = parseInt(v, 10);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.max(1, Math.min(60, n));
+    }
+    const d = meeting.durations;
+    if (create != null) d.create = toMin(create, d.create);
+    if (voting != null) d.voting = toMin(voting, d.voting);
+    if (discuss != null) d.discuss = toMin(discuss, d.discuss);
+    io.to(mid).emit('state', meetingStateForClient(meeting));
+  });
+
+  // Admin: start a phase with optional minutes override
+  socket.on('start_phase', ({ meetingId, adminToken, phase, minutes, topicId }) => {
+    const mid = (meetingId || '').toUpperCase();
+    const meeting = meetings.get(mid);
+    if (!meeting) return;
+    const authorized = adminToken && adminToken === meeting.adminToken;
+    if (!authorized) return;
+    if (!['create', 'voting', 'discuss'].includes(phase)) return;
+    if (phase === 'discuss') {
+      const topic = meeting.topics.find(t => t.id === topicId) || (meeting.currentTopicId && meeting.topics.find(t => t.id === meeting.currentTopicId));
+      if (!topic) return;
+      meeting.currentTopicId = topic.id;
+    }
+    const durMin = Number.isFinite(minutes) ? minutes : meeting.durations[phase];
+    const ms = Math.max(60000, Math.min(60 * 60000, durMin * 60000));
+    meeting.phase = phase;
+    meeting.phaseEndsAt = Date.now() + ms;
+    io.to(mid).emit('state', meetingStateForClient(meeting));
+  });
+
+  // Admin: add one minute to current phase timer
+  socket.on('add_minute', ({ meetingId, adminToken }) => {
+    const mid = (meetingId || '').toUpperCase();
+    const meeting = meetings.get(mid);
+    if (!meeting) return;
+    const authorized = adminToken && adminToken === meeting.adminToken;
+    if (!authorized) return;
+    if (!meeting.phase || !meeting.phaseEndsAt) return;
+    meeting.phaseEndsAt += 60000;
+    io.to(mid).emit('state', meetingStateForClient(meeting));
+  });
+
+  // Admin: end current phase without advancing
+  socket.on('end_phase', ({ meetingId, adminToken }) => {
+    const mid = (meetingId || '').toUpperCase();
+    const meeting = meetings.get(mid);
+    if (!meeting) return;
+    const authorized = adminToken && adminToken === meeting.adminToken;
+    if (!authorized) return;
+    meeting.phase = null;
+    meeting.phaseEndsAt = null;
+    io.to(mid).emit('state', meetingStateForClient(meeting));
   });
 });
 

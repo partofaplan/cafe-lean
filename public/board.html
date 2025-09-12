@@ -9,7 +9,7 @@
       html, body { height: 100%; }
       body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
       .wrap { display: flex; flex-direction: column; height: 100%; }
-      header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; justify-content:space-between; }
+      header { padding: 12px 16px; border-bottom: 1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap: 12px; flex-wrap: wrap; }
       header .title { font-weight: 600; }
       .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 12px; flex: 1; }
       .col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display:flex; flex-direction:column; }
@@ -26,7 +26,7 @@
     <div class="wrap">
       <header>
         <div class="title">Lean Coffee — Board <span id="code"></span></div>
-        <div class="muted">Read-only display</div>
+        <div class="muted">Phase: <span id="phaseLabel">—</span> • Time: <span id="phaseTime">—</span> • Read-only display</div>
       </header>
       <div class="cols">
         <div class="col"><h2>To Discuss</h2><div id="todo" class="list"></div></div>
@@ -46,7 +46,19 @@
 
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
 
+      let currentPhase = null; let endsAt = 0; let ticker = null; let paused=false; let remainingMs=0;
+      function updatePhase(){
+        const labelEl = document.getElementById('phaseLabel'); const timeEl = document.getElementById('phaseTime');
+        let label = '—'; if (currentPhase === 'create') label='Creating'; else if (currentPhase === 'voting') label='Voting'; else if (currentPhase === 'discuss') label='Discussing';
+        if (paused) label += ' (Paused)';
+        labelEl.textContent = label;
+        const rem = Math.max(0, Math.floor(((paused ? remainingMs : (endsAt - Date.now())))/1000));
+        const m = Math.floor(rem/60), s = rem%60; timeEl.textContent = `${m}:${String(s).padStart(2,'0')}`;
+      }
+      function startTicker(){ if (ticker) clearInterval(ticker); ticker = setInterval(updatePhase, 500); }
+
       socket.on('state', (state) => {
+        currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0; updatePhase(); startTicker();
         const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
         for (const k of Object.keys(cols)) cols[k].innerHTML = '';
         const byCol = { todo: [], doing: [], done: [] };
@@ -68,4 +80,3 @@
     </script>
   </body>
   </html>
-

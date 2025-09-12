@@ -38,6 +38,38 @@
           <button id="saveToken" class="btn">Save</button>
         </div>
       </header>
+      <div id="phasePrompt" style="display:none; padding:12px; border-bottom:1px solid var(--line); background:#0f1630;">
+        <div id="promptText" style="margin-bottom:8px; font-weight:600;"></div>
+        <div class="row">
+          <button id="promptAddMinResume" class="btn">+1 min & Resume</button>
+          <button id="promptAdvance" class="btn primary">Advance</button>
+          <button id="promptDismiss" class="btn">Dismiss</button>
+        </div>
+      </div>
+      <div style="padding:12px; border-bottom:1px solid var(--line); display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+        <div>
+          <div class="muted">Current Phase</div>
+          <div id="phaseLabel" style="font-weight:600;">—</div>
+          <div class="muted">Time remaining: <span id="phaseTime">—</span></div>
+        </div>
+        <div style="flex:1; min-width:220px;">
+          <div class="muted">Phase Timers (minutes)</div>
+          <div class="row" style="margin-top:6px;">
+            <input id="durCreate" type="number" min="1" max="60" style="width:80px;" placeholder="Create" />
+            <input id="durVote" type="number" min="1" max="60" style="width:80px;" placeholder="Vote" />
+            <input id="durDiscuss" type="number" min="1" max="60" style="width:80px;" placeholder="Discuss" />
+            <button id="saveDur" class="btn">Apply</button>
+          </div>
+        </div>
+        <div class="row">
+          <button id="startCreate" class="btn">Start Create</button>
+          <button id="startVote" class="btn">Start Voting</button>
+          <button id="pausePhase" class="btn">Pause</button>
+          <button id="resumePhase" class="btn">Resume</button>
+          <button id="addMin" class="btn">+1 min</button>
+          <button id="endPhase" class="btn">End Phase</button>
+        </div>
+      </div>
       <div class="cols">
         <div class="col"><h2>To Discuss</h2><div id="todo" class="list"></div></div>
         <div class="col"><h2>Discussing</h2><div id="doing" class="list"></div></div>
@@ -81,12 +113,90 @@
       const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
       function move(topicId, column){ const adminToken = tokenInput.value.trim(); socket.emit('move_topic', { meetingId, topicId, column, adminToken }); }
+      function startDiscuss(topicId){ const adminToken = tokenInput.value.trim(); const mins = Number(durDiscuss.value)||undefined; socket.emit('start_phase', { meetingId, adminToken, phase:'discuss', topicId, minutes: mins }); }
       function del(topicId){ const adminToken = tokenInput.value.trim(); if(!confirm('Delete topic?')) return; socket.emit('delete_topic', { meetingId, topicId, adminToken }); }
 
+      // Phase controls
+      const phaseLabel = document.getElementById('phaseLabel');
+      const phaseTime = document.getElementById('phaseTime');
+      const durCreate = document.getElementById('durCreate');
+      const durVote = document.getElementById('durVote');
+      const durDiscuss = document.getElementById('durDiscuss');
+      document.getElementById('saveDur').onclick = () => {
+        const adminToken = tokenInput.value.trim();
+        socket.emit('set_durations', { meetingId, adminToken, create: durCreate.value, voting: durVote.value, discuss: durDiscuss.value });
+      };
+      document.getElementById('startCreate').onclick = () => {
+        const adminToken = tokenInput.value.trim(); const mins = Number(durCreate.value)||undefined;
+        socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: mins });
+      };
+      document.getElementById('startVote').onclick = () => {
+        const adminToken = tokenInput.value.trim(); const mins = Number(durVote.value)||undefined;
+        socket.emit('start_phase', { meetingId, adminToken, phase:'voting', minutes: mins });
+      };
+      document.getElementById('addMin').onclick = () => {
+        const adminToken = tokenInput.value.trim(); socket.emit('add_minute', { meetingId, adminToken });
+      };
+      document.getElementById('endPhase').onclick = () => {
+        const adminToken = tokenInput.value.trim(); socket.emit('end_phase', { meetingId, adminToken });
+      };
+      document.getElementById('pausePhase').onclick = () => {
+        const adminToken = tokenInput.value.trim(); socket.emit('pause_phase', { meetingId, adminToken });
+      };
+      document.getElementById('resumePhase').onclick = () => {
+        const adminToken = tokenInput.value.trim(); socket.emit('resume_phase', { meetingId, adminToken });
+      };
+
+      let phaseTicker = null; let lastNow = 0; let endsAt = 0; let currentPhase = null; let currentTopicId = null; let topicsIdx = new Map(); let paused = false; let remainingMs = 0;
+      function updatePhaseUI(){
+        if (!currentPhase){ phaseLabel.textContent = '—'; phaseTime.textContent = '—'; return; }
+        let label = currentPhase;
+        if (currentPhase === 'discuss' && currentTopicId && topicsIdx.get(currentTopicId)){
+          label = `Discussing: ${topicsIdx.get(currentTopicId).title}`;
+        } else if (currentPhase === 'create') label = 'Creating topics';
+        else if (currentPhase === 'voting') label = 'Voting';
+        if (paused) label += ' (Paused)';
+        phaseLabel.textContent = label;
+        const now = Date.now();
+        const base = paused ? Math.max(0, Math.floor((remainingMs)/1000)) : Math.max(0, Math.floor((endsAt - now)/1000));
+        const rem = base;
+        const m = Math.floor(rem/60), s = rem%60;
+        phaseTime.textContent = `${m}:${String(s).padStart(2,'0')}`;
+      }
+      function startTicker(){ if (phaseTicker) clearInterval(phaseTicker); phaseTicker = setInterval(updatePhaseUI, 500); }
+
+      // Phase expired prompt
+      const phasePrompt = document.getElementById('phasePrompt');
+      const promptText = document.getElementById('promptText');
+      const promptAddMinResume = document.getElementById('promptAddMinResume');
+      const promptAdvance = document.getElementById('promptAdvance');
+      const promptDismiss = document.getElementById('promptDismiss');
+      function hidePrompt(){ phasePrompt.style.display = 'none'; }
+      function showPrompt(text){ promptText.textContent = text; phasePrompt.style.display = 'block'; }
+      promptDismiss.onclick = hidePrompt;
+      promptAddMinResume.onclick = () => { const adminToken = tokenInput.value.trim(); socket.emit('add_minute', { meetingId, adminToken }); socket.emit('resume_phase', { meetingId, adminToken }); hidePrompt(); };
+      promptAdvance.onclick = () => {
+        const adminToken = tokenInput.value.trim();
+        if (currentPhase === 'create') { socket.emit('start_phase', { meetingId, adminToken, phase:'voting' }); }
+        else if (currentPhase === 'voting') { alert('Move a topic to Discussing and click Start Timer when ready.'); }
+        else if (currentPhase === 'discuss') {
+          if (currentTopicId) { socket.emit('move_topic', { meetingId, topicId: currentTopicId, column:'done', adminToken }); }
+          socket.emit('end_phase', { meetingId, adminToken });
+        }
+        hidePrompt();
+      };
+
       socket.on('state', (state) => {
+        // Durations
+        if (state.durations){ durCreate.value = state.durations.create; durVote.value = state.durations.voting; durDiscuss.value = state.durations.discuss; }
+        // Phase
+        currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; lastNow = state.now || Date.now(); currentTopicId = state.currentTopicId || null; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0;
+        updatePhaseUI(); startTicker();
+        if (!currentPhase || (!paused && endsAt && endsAt > Date.now())) hidePrompt();
         for (const k of Object.keys(cols)) cols[k].innerHTML = '';
         const byCol = { todo: [], doing: [], done: [] };
-        for (const t of state.topics) byCol[t.column||'todo'].push(t);
+        topicsIdx = new Map();
+        for (const t of state.topics){ byCol[t.column||'todo'].push(t); topicsIdx.set(t.id, t); }
         const sort = arr => arr.sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
         for (const col of ['todo','doing','done']){
           for (const t of sort(byCol[col])){
@@ -98,11 +208,19 @@
             if (t.column !== 'todo') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'To Discuss'}), { onclick: () => move(t.id, 'todo') }));
             if (t.column !== 'doing') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'Discussing'}), { onclick: () => move(t.id, 'doing') }));
             if (t.column !== 'done') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'Done'}), { onclick: () => move(t.id, 'done') }));
+            if (t.column === 'doing') bar.appendChild(Object.assign(el({ tag:'button', className:'btn primary', text:'Start Timer'}), { onclick: () => startDiscuss(t.id) }));
             bar.appendChild(Object.assign(el({ tag:'button', className:'btn danger', text:'Delete'}), { onclick: () => del(t.id) }));
             c.appendChild(left); c.appendChild(bar);
             cols[col].appendChild(c);
           }
         }
+      });
+
+      // Server signals when a phase timer expires
+      socket.on('phase_expired', ({ phase }) => {
+        if (phase === 'create') showPrompt('Create phase ended. Add 1 minute or go to Voting?');
+        else if (phase === 'voting') showPrompt('Voting ended. Add 1 minute or pick a topic to discuss.');
+        else if (phase === 'discuss') showPrompt('Discussion time ended. Add 1 minute or complete the topic and pick another.');
       });
     </script>
   </body>

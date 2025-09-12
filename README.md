@@ -50,6 +50,30 @@ services:
 
 Data is in-memory for this MVP; a restart clears meetings. For production, add a backing store (Redis/Postgres) and persist sessions.
 
+## Meeting Phases and Timers
+
+- Phases: Create Topics, Voting, Discussing.
+- Admin controls (on `/admin/:MEETING_ID`):
+  - Set timer durations (minutes) for each phase.
+  - Start Create/Voting phases, start discussion for a selected topic, add +1 minute, or end current phase.
+- Participants:
+  - Can submit topics only during Create phase.
+  - Can vote only during Voting phase (3 votes per participant).
+  - See the current phase and countdown.
+
+### Timer Enhancements
+- When a timer reaches zero, admins receive an on-screen prompt with contextual actions:
+  - Create: +1 minute & resume, or advance to Voting.
+  - Voting: +1 minute & resume, or proceed to select a topic for discussion.
+  - Discuss: +1 minute & resume, or complete the topic and pick another.
+- Admin can pause and resume any phase.
+
+### Persistence
+- Meetings and timers persist to `data/state.json` on the server.
+- In Docker/Kubernetes, mount `/app/data` to keep state across restarts.
+
+## Helm (Kubernetes)
+
 ## Helm (Kubernetes)
 
 This repo includes a Helm chart for deploying with Traefik Ingress and an sslip.io endpoint.
@@ -74,3 +98,12 @@ Notes:
 - For a public IP, replace `127.0.0.1` with your ingress IP (e.g., `10.0.0.5.sslip.io`).
 - Enable TLS if your Traefik is configured with ACME:
   - `--set ingress.tls.enabled=true --set ingress.tls.secretName=<existingSecret>`
+
+### Helm Values of Interest
+- `env.MAX_VOTES`: votes per participant (default 3)
+- `env.DEFAULT_CREATE_MIN`: default Create phase minutes (default 5)
+- `env.DEFAULT_VOTING_MIN`: default Voting phase minutes (default 3)
+- `env.DEFAULT_DISCUSS_MIN`: default Discuss phase minutes (default 5)
+- `persistence.enabled`: enable PVC for `/app/data` (default false)
+- `persistence.size`: PVC size (default 1Gi)
+- `persistence.storageClass`: set storage class if needed

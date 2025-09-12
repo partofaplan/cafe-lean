@@ -1,0 +1,112 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cafe Lean — Setup</title>
+    <style>
+      :root { --bg: #0b1020; --panel: #0f1630; --line: #23305f; --text: #f2f5ff; --muted:#a3b0d4; --primary:#60a5fa; }
+      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+      header { padding: 16px; border-bottom: 1px solid var(--line); display:flex; justify-content:space-between; align-items:center; }
+      .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+      .card { background: var(--panel); border:1px solid var(--line); border-radius: 12px; padding: 16px; margin: 16px 0; }
+      .row { display:flex; gap: 12px; align-items:center; flex-wrap: wrap; }
+      .muted { color: var(--muted); font-size: 14px; }
+      input[type="number"]{ width:100px; font-size:16px; padding:8px 10px; border-radius:8px; border:1px solid #33407a; background:#0f1630; color:#fff; }
+      button { font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #3759a3; background:#13204a; color:#fff; cursor:pointer; }
+      a.btn { text-decoration: none; display:inline-block; }
+      .phase { display:grid; grid-template-columns: 1fr auto; gap: 10px; align-items:center; margin-top: 12px; }
+      .phase h3 { margin: 0; }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+  </head>
+  <body>
+    <header>
+      <div>Setup — <span id="code"></span></div>
+      <div>
+        <a id="openBoard" class="btn" href="#">Open Board</a>
+        <a id="openAdmin" class="btn" href="#">Go to Admin</a>
+      </div>
+    </header>
+    <div class="container">
+      <div class="card">
+        <h2>Phase Timers</h2>
+        <p class="muted">Set how long each phase should last. You can still adjust and pause timers later in the Admin screen.</p>
+        <div class="phase">
+          <div>
+            <h3>Create Topics</h3>
+            <div class="muted">Participants propose topics to discuss.</div>
+          </div>
+          <div class="row">
+            <input id="durCreate" type="number" min="1" max="60" />
+            <span class="muted">minutes</span>
+          </div>
+        </div>
+        <div class="phase">
+          <div>
+            <h3>Voting</h3>
+            <div class="muted">Participants vote (3 votes each).</div>
+          </div>
+          <div class="row">
+            <input id="durVote" type="number" min="1" max="60" />
+            <span class="muted">minutes</span>
+          </div>
+        </div>
+        <div class="phase">
+          <div>
+            <h3>Discuss Topic</h3>
+            <div class="muted">Time to discuss the selected topic.</div>
+          </div>
+          <div class="row">
+            <input id="durDiscuss" type="number" min="1" max="60" />
+            <span class="muted">minutes</span>
+          </div>
+        </div>
+        <div class="row" style="margin-top:14px;">
+          <button id="saveDur">Save Timers</button>
+          <button id="startCreate" class="btn">Start Create Phase</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Next Steps</h2>
+        <ol>
+          <li>Share the participant link: <code id="shareLink"></code></li>
+          <li>Open the Board on a shared screen.</li>
+          <li>Use the Admin screen to start the Create phase and manage timers.</li>
+        </ol>
+      </div>
+    </div>
+
+    <script>
+      const meetingId = location.pathname.split('/').pop().toUpperCase();
+      const adminToken = localStorage.getItem(`adminToken:${meetingId}`) || '';
+      document.getElementById('code').textContent = meetingId;
+      document.getElementById('openBoard').href = `/board/${meetingId}`;
+      document.getElementById('openAdmin').href = `/admin/${meetingId}`;
+      document.getElementById('shareLink').textContent = `${location.origin}/join/${meetingId}`;
+
+      const socket = io();
+      socket.emit('join', { meetingId, role: 'admin', adminToken });
+
+      const durCreate = document.getElementById('durCreate');
+      const durVote = document.getElementById('durVote');
+      const durDiscuss = document.getElementById('durDiscuss');
+      document.getElementById('saveDur').onclick = () => {
+        socket.emit('set_durations', { meetingId, adminToken, create: durCreate.value, voting: durVote.value, discuss: durDiscuss.value });
+        alert('Saved timers');
+      };
+      document.getElementById('startCreate').onclick = () => {
+        socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: Number(durCreate.value)||undefined });
+        alert('Create phase started');
+      };
+
+      socket.on('state', (state) => {
+        if (state.durations){
+          durCreate.value = state.durations.create;
+          durVote.value = state.durations.voting;
+          durDiscuss.value = state.durations.discuss;
+        }
+      });
+    </script>
+  </body>
+  </html>

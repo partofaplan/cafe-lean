@@ -22,7 +22,7 @@
   <body>
     <header>
       <div>Join — <span id="code"></span></div>
-      <div class="muted">Votes remaining: <span id="remaining">0</span></div>
+      <div class="muted">Phase: <span id="phaseLabel">—</span> • Time: <span id="phaseTime">—</span> • Votes remaining: <span id="remaining">0</span></div>
     </header>
     <div class="container">
       <div class="card">
@@ -30,7 +30,7 @@
           <input id="topicInput" type="text" placeholder="Propose a topic" maxlength="200" />
           <button id="submitBtn">Submit</button>
         </div>
-        <div class="muted" style="margin-top:6px;">Max 200 characters. Everyone can see your topic title.</div>
+        <div class="muted" id="submitHelp" style="margin-top:6px;">Max 200 characters. Everyone can see your topic title.</div>
       </div>
       <div class="card">
         <h3>Topics</h3>
@@ -54,10 +54,30 @@
       };
 
       let maxVotes = 3; let voted = new Set(); let latestState = null;
+      let currentPhase = null; let endsAt = 0; let phaseTicker = null; let paused=false; let remainingMs=0;
       function refreshRemaining(){ document.getElementById('remaining').textContent = Math.max(0, maxVotes - voted.size); }
+      function updatePhaseUI(){
+        const phaseLabel = document.getElementById('phaseLabel'); const phaseTime = document.getElementById('phaseTime');
+        let label = '—'; if (currentPhase === 'create') label = 'Creating'; else if (currentPhase === 'voting') label='Voting'; else if (currentPhase === 'discuss') label='Discussing';
+        if (paused) label += ' (Paused)';
+        phaseLabel.textContent = label;
+        const now = Date.now();
+        const rem = Math.max(0, Math.floor(((paused ? remainingMs : (endsAt - now)))/1000));
+        const m = Math.floor(rem/60), s = rem%60;
+        phaseTime.textContent = `${m}:${String(s).padStart(2,'0')}`;
+        const submitBtn = document.getElementById('submitBtn');
+        const submitHelp = document.getElementById('submitHelp');
+        const allowed = currentPhase === 'create';
+        submitBtn.disabled = !allowed;
+        submitBtn.textContent = allowed ? 'Submit' : 'Submit (Create phase only)';
+        submitHelp.textContent = allowed ? 'Max 200 characters. Everyone can see your topic title.' : 'Topic submission opens during the Create phase. Please wait for the facilitator to start it.';
+      }
+      function startTicker(){ if (phaseTicker) clearInterval(phaseTicker); phaseTicker = setInterval(updatePhaseUI, 500); }
 
       function render(state){
         maxVotes = state?.config?.MAX_VOTES_PER_PARTICIPANT ?? 3;
+        // Phase
+        currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0; updatePhaseUI(); startTicker();
         const list = document.getElementById('list'); list.innerHTML = '';
         const items = state.topics.slice().sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
         for (const t of items){
@@ -67,12 +87,13 @@
           const btn = document.createElement('button');
           const has = voted.has(t.id);
           btn.textContent = has ? 'Unvote' : 'Vote';
-          if (!has && voted.size >= maxVotes) { btn.disabled = true; }
+          if (!has && (voted.size >= maxVotes || currentPhase !== 'voting')) { btn.disabled = true; }
           btn.onclick = () => {
             if (voted.has(t.id)) {
               socket.emit('unvote', { meetingId, participantId, topicId: t.id });
             } else {
               if (voted.size >= maxVotes) { alert('No votes remaining'); return; }
+              if (currentPhase !== 'voting') { alert('Voting is not active'); return; }
               socket.emit('vote', { meetingId, participantId, topicId: t.id });
             }
           };
@@ -87,6 +108,8 @@
 
       socket.on('state', (state) => { latestState = state; render(state); });
       socket.on('your_votes', ({ topicIds, max }) => { voted = new Set(topicIds || []); if (typeof max === 'number') maxVotes = max; if (latestState) render(latestState); else refreshRemaining(); });
+      // Soft update when a new topic is added so everyone stays in sync
+      socket.on('topic_added', () => { if (latestState) render(latestState); });
     </script>
   </body>
   </html>

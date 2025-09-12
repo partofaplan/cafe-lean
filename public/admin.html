@@ -43,7 +43,16 @@
         <div class="col"><h2>Discussing</h2><div id="doing" class="list"></div></div>
         <div class="col"><h2>Done</h2><div id="done" class="list"></div></div>
       </div>
-      <div style="padding:12px; border-top:1px solid var(--line);" class="muted">Only admins can move/delete topics. Save the admin token provided when creating the meeting.</div>
+      <div style="padding:12px; border-top:1px solid var(--line);" class="muted">
+        <div>Only admins can move/delete topics. Save the admin token provided when creating the meeting.</div>
+        <div style="margin-top:8px;">
+          Share this link with participants:
+          <div class="row" style="margin-top:6px;">
+            <input id="shareLink" type="text" readonly style="flex:1;" />
+            <button id="copyLink" class="btn">Copy</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -59,6 +68,15 @@
       };
 
       socket.emit('join', { meetingId, role: 'admin', adminToken: tokenInput.value.trim() || null });
+
+      // Share link setup
+      const shareLinkEl = document.getElementById('shareLink');
+      const shareUrl = `${location.origin}/join/${meetingId}`;
+      shareLinkEl.value = shareUrl;
+      document.getElementById('copyLink').onclick = async () => {
+        try { await navigator.clipboard.writeText(shareUrl); alert('Link copied'); }
+        catch { shareLinkEl.select(); document.execCommand('copy'); alert('Link copied'); }
+      };
 
       const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
@@ -89,4 +107,3 @@
     </script>
   </body>
   </html>
-

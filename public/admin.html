@@ -36,6 +36,7 @@
         <div class="row">
           <input id="token" type="text" placeholder="Admin token" />
           <button id="saveToken" class="btn">Save</button>
+          <button id="helpBtn" class="btn" title="Lean Coffee rules">?</button>
         </div>
       </header>
       <div id="phasePrompt" style="display:none; padding:12px; border-bottom:1px solid var(--line); background:#0f1630;">
@@ -52,16 +53,8 @@
           <div id="phaseLabel" style="font-weight:600;">—</div>
           <div class="muted">Time remaining: <span id="phaseTime">—</span></div>
         </div>
-        <div style="flex:1; min-width:220px;">
-          <div class="muted">Phase Timers (minutes)</div>
-          <div class="row" style="margin-top:6px;">
-            <input id="durCreate" type="number" min="1" max="60" style="width:80px;" placeholder="Create" />
-            <input id="durVote" type="number" min="1" max="60" style="width:80px;" placeholder="Vote" />
-            <input id="durDiscuss" type="number" min="1" max="60" style="width:80px;" placeholder="Discuss" />
-            <button id="saveDur" class="btn">Apply</button>
-          </div>
-        </div>
         <div class="row">
+          <button id="adjustTimers" class="btn">Adjust timers</button>
           <button id="startCreate" class="btn">Start Create</button>
           <button id="startVote" class="btn">Start Voting</button>
           <button id="pausePhase" class="btn">Pause</button>
@@ -113,25 +106,22 @@
       const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
       function move(topicId, column){ const adminToken = tokenInput.value.trim(); socket.emit('move_topic', { meetingId, topicId, column, adminToken }); }
-      function startDiscuss(topicId){ const adminToken = tokenInput.value.trim(); const mins = Number(durDiscuss.value)||undefined; socket.emit('start_phase', { meetingId, adminToken, phase:'discuss', topicId, minutes: mins }); }
+      function startDiscuss(topicId){ const adminToken = tokenInput.value.trim(); const mins = (durations && durations.discuss) ? Number(durations.discuss) : undefined; socket.emit('start_phase', { meetingId, adminToken, phase:'discuss', topicId, minutes: mins }); }
       function del(topicId){ const adminToken = tokenInput.value.trim(); if(!confirm('Delete topic?')) return; socket.emit('delete_topic', { meetingId, topicId, adminToken }); }
 
       // Phase controls
       const phaseLabel = document.getElementById('phaseLabel');
       const phaseTime = document.getElementById('phaseTime');
-      const durCreate = document.getElementById('durCreate');
-      const durVote = document.getElementById('durVote');
-      const durDiscuss = document.getElementById('durDiscuss');
-      document.getElementById('saveDur').onclick = () => {
-        const adminToken = tokenInput.value.trim();
-        socket.emit('set_durations', { meetingId, adminToken, create: durCreate.value, voting: durVote.value, discuss: durDiscuss.value });
-      };
+      let durations = { create: 5, voting: 3, discuss: 5 };
+      // Adjust timers modal
+      const adjustBtn = document.getElementById('adjustTimers');
+      adjustBtn.onclick = () => { openTimersModal(); };
       document.getElementById('startCreate').onclick = () => {
-        const adminToken = tokenInput.value.trim(); const mins = Number(durCreate.value)||undefined;
+        const adminToken = tokenInput.value.trim(); const mins = durations && durations.create ? Number(durations.create) : undefined;
         socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: mins });
       };
       document.getElementById('startVote').onclick = () => {
-        const adminToken = tokenInput.value.trim(); const mins = Number(durVote.value)||undefined;
+        const adminToken = tokenInput.value.trim(); const mins = durations && durations.voting ? Number(durations.voting) : undefined;
         socket.emit('start_phase', { meetingId, adminToken, phase:'voting', minutes: mins });
       };
       document.getElementById('addMin').onclick = () => {
@@ -188,7 +178,7 @@
 
       socket.on('state', (state) => {
         // Durations
-        if (state.durations){ durCreate.value = state.durations.create; durVote.value = state.durations.voting; durDiscuss.value = state.durations.discuss; }
+        if (state.durations){ durations = state.durations; preloadTimersModal(durations); }
         // Phase
         currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; lastNow = state.now || Date.now(); currentTopicId = state.currentTopicId || null; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0;
         updatePhaseUI(); startTicker();
@@ -222,6 +212,72 @@
         else if (phase === 'voting') showPrompt('Voting ended. Add 1 minute or pick a topic to discuss.');
         else if (phase === 'discuss') showPrompt('Discussion time ended. Add 1 minute or complete the topic and pick another.');
       });
+
+      // ----- Timers modal -----
+      const modalHtml = `
+        <div id="timersOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;">
+          <div style="background:#0f1630;border:1px solid #23305f;border-radius:12px;max-width:520px;width:92%;padding:16px;">
+            <h3 style="margin-top:0;margin-bottom:8px;">Adjust Phase Timers</h3>
+            <div class="muted">Set timer lengths in minutes. Applies immediately.</div>
+            <div class="row" style="margin-top:12px;">
+              <label style="min-width:110px;">Create Topics</label>
+              <input id="mDurCreate" type="number" min="1" max="60" style="width:100px;" />
+            </div>
+            <div class="row" style="margin-top:8px;">
+              <label style="min-width:110px;">Voting</label>
+              <input id="mDurVote" type="number" min="1" max="60" style="width:100px;" />
+            </div>
+            <div class="row" style="margin-top:8px;">
+              <label style="min-width:110px;">Discuss</label>
+              <input id="mDurDiscuss" type="number" min="1" max="60" style="width:100px;" />
+            </div>
+            <div class="row" style="margin-top:12px;justify-content:flex-end;">
+              <button id="mCancel" class="btn">Cancel</button>
+              <button id="mSave" class="btn primary">Save</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', modalHtml);
+      const overlay = document.getElementById('timersOverlay');
+      function preloadTimersModal(d){
+        const c=document.getElementById('mDurCreate'); const v=document.getElementById('mDurVote'); const s=document.getElementById('mDurDiscuss');
+        if (c) c.value = d.create; if (v) v.value = d.voting; if (s) s.value = d.discuss;
+      }
+      function openTimersModal(){ overlay.style.display='flex'; preloadTimersModal(durations); }
+      function closeTimersModal(){ overlay.style.display='none'; }
+      overlay.addEventListener('click', (e)=>{ if(e.target===overlay) closeTimersModal(); });
+      document.getElementById('mCancel').onclick = closeTimersModal;
+      document.getElementById('mSave').onclick = () => {
+        const adminToken = tokenInput.value.trim();
+        const c = Number(document.getElementById('mDurCreate').value)||durations.create;
+        const v = Number(document.getElementById('mDurVote').value)||durations.voting;
+        const s = Number(document.getElementById('mDurDiscuss').value)||durations.discuss;
+        socket.emit('set_durations', { meetingId, adminToken, create: c, voting: v, discuss: s });
+        closeTimersModal();
+      };
+
+      // ----- Help modal -----
+      const helpHtml = `
+        <div id="helpOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;">
+          <div style="background:#0f1630;border:1px solid #23305f;border-radius:12px;max-width:640px;width:92%;padding:16px;">
+            <h3 style="margin-top:0;margin-bottom:8px;">Lean Coffee — How it works</h3>
+            <ul style="line-height:1.5; margin-left: 18px;">
+              <li>Everyone proposes topics during the <strong>Create</strong> phase.</li>
+              <li>Each participant gets <strong>3 votes</strong> to prioritize topics in the <strong>Voting</strong> phase.</li>
+              <li>Discuss topics in order of votes. Each discussion is <strong>time‑boxed</strong>.</li>
+              <li>At the end of a timer, choose to <strong>continue</strong> or <strong>move on</strong> to the next topic.</li>
+              <li>Columns: <strong>To Discuss</strong>, <strong>Discussing</strong>, <strong>Done</strong>. Only admins move topics.</li>
+            </ul>
+            <div class="row" style="justify-content:flex-end; margin-top: 12px;">
+              <button id="hClose" class="btn primary">Got it</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', helpHtml);
+      const helpOverlay = document.getElementById('helpOverlay');
+      document.getElementById('helpBtn').onclick = () => { helpOverlay.style.display = 'flex'; };
+      document.getElementById('hClose').onclick = () => { helpOverlay.style.display = 'none'; };
+      helpOverlay.addEventListener('click', (e)=>{ if(e.target===helpOverlay) helpOverlay.style.display='none'; });
     </script>
   </body>
   </html>

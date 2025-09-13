@@ -1,6 +1,6 @@
 image:
   repository: partofaplan/cafe-lean
-  tag: 0.2.0
+  tag: 0.2.2
   pullPolicy: IfNotPresent
 
 replicaCount: 1

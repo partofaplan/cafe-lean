@@ -44,7 +44,9 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --port 3000 \
-            --cpu 0.5 --memory 512Mi \
+            --cpu 1 --memory 512Mi \
+            --concurrency 500 \
+            --timeout 3600 \
             --max-instances 1 \
+            --min-instances 1 \
             --set-env-vars MAX_VOTES=3,DEFAULT_CREATE_MIN=5,DEFAULT_VOTING_MIN=3,DEFAULT_DISCUSS_MIN=5
-

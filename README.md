@@ -122,7 +122,10 @@ One-time setup:
   - `gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com`
 
 Manual deploy script:
-- `PROJECT_ID=<PROJECT_ID> REGION=<REGION> SERVICE=cafe-lean ./scripts/deploy-cloudrun.sh`
+- Use your Docker Hub image (no build in GCP):
+  - `PROJECT_ID=<PROJECT_ID> REGION=<REGION> SERVICE=cafe-lean IMAGE=docker.io/partofaplan/cafe-lean:0.2.0 ./scripts/deploy-cloudrun.sh`
+- Or build to GCR/Artifact Registry (uses Cloud Build):
+  - `PROJECT_ID=<PROJECT_ID> REGION=<REGION> SERVICE=cafe-lean IMAGE=gcr.io/<PROJECT_ID>/cafe-lean:$(git rev-parse --short HEAD) ./scripts/deploy-cloudrun.sh`
 - Outputs the service URL when complete.
 
 GitHub Actions (optional):
@@ -130,6 +133,7 @@ GitHub Actions (optional):
 - Create a JSON key and add these GitHub secrets in your repo:
   - `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_SERVICE` (e.g., `cafe-lean`), `GCP_SA_KEY` (the JSON key content)
 - On push to `main`, `.github/workflows/deploy-cloudrun.yml` builds and deploys.
+ - If you prefer deploying a pre-built Docker Hub image in CI, you can modify the workflow to skip the build and just run `gcloud run deploy ... --image docker.io/partofaplan/cafe-lean:<tag>`.
 
 Custom domain:
 - Cloud Run → Custom Domains to map your domain to the service; or keep the default run.app URL.

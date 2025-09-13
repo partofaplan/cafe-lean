@@ -8,10 +8,16 @@ set -euo pipefail
 : "${REGION:?set REGION}"
 : "${SERVICE:=cafe-lean}"
 
-IMAGE="gcr.io/${PROJECT_ID}/${SERVICE}:$(git rev-parse --short HEAD)"
+# Image to deploy. Default uses your Docker Hub repo/tag.
+# Override with IMAGE=... to use a different registry (e.g., gcr.io/PROJECT/SERVICE:tag)
+: "${IMAGE:=docker.io/partofaplan/cafe-lean:0.2.1}"
 
-echo "Building ${IMAGE}..."
-gcloud builds submit --tag "${IMAGE}" .
+if [[ "$IMAGE" == gcr.io/* || "$IMAGE" == *.pkg.dev/* ]]; then
+  echo "Building ${IMAGE} via Cloud Build..."
+  gcloud builds submit --tag "${IMAGE}" .
+else
+  echo "Using external image ${IMAGE}; skipping Cloud Build."
+fi
 
 echo "Deploying to Cloud Run service ${SERVICE} in ${REGION}..."
 gcloud run deploy "${SERVICE}" \
@@ -26,4 +32,3 @@ gcloud run deploy "${SERVICE}" \
 
 echo "Done. URL:"
 gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)'
-

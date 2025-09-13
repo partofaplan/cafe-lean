@@ -22,7 +22,10 @@
   <body>
     <header>
       <div>Join — <span id="code"></span></div>
-      <div class="muted">Phase: <span id="phaseLabel">—</span> • Time: <span id="phaseTime">—</span> • Votes remaining: <span id="remaining">0</span></div>
+      <div class="row" style="gap:8px; align-items:center;">
+        <div class="muted">Phase: <span id="phaseLabel">—</span> • Time: <span id="phaseTime">—</span> • Votes remaining: <span id="remaining">0</span></div>
+        <button id="helpBtn" title="Lean Coffee rules" style="font-size:14px; padding:6px 10px;">?</button>
+      </div>
     </header>
     <div class="container">
       <div class="card">
@@ -110,6 +113,29 @@
       socket.on('your_votes', ({ topicIds, max }) => { voted = new Set(topicIds || []); if (typeof max === 'number') maxVotes = max; if (latestState) render(latestState); else refreshRemaining(); });
       // Soft update when a new topic is added so everyone stays in sync
       socket.on('topic_added', () => { if (latestState) render(latestState); });
+
+      // ----- Help modal -----
+      const helpHtml = `
+        <div id="helpOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:9999;">
+          <div style="background:#0f1630;border:1px solid #23305f;border-radius:12px;max-width:640px;width:92%;padding:16px;">
+            <h3 style="margin-top:0;margin-bottom:8px;">Lean Coffee — How it works</h3>
+            <ul style="line-height:1.5; margin-left: 18px;">
+              <li>Propose topics during the <strong>Create</strong> phase.</li>
+              <li>You have <strong>3 votes</strong> total to prioritize topics during <strong>Voting</strong>.</li>
+              <li>We discuss topics by vote order with <strong>time‑boxed</strong> discussions.</li>
+              <li>At a timer end, the facilitator may <strong>continue</strong> or move on.</li>
+              <li>Columns: <strong>To Discuss</strong>, <strong>Discussing</strong>, <strong>Done</strong>. Only the facilitator moves topics.</li>
+            </ul>
+            <div class="row" style="justify-content:flex-end; margin-top: 12px;">
+              <button id="hClose" style="font-size:14px; padding:6px 10px;">Got it</button>
+            </div>
+          </div>
+        </div>`;
+      document.body.insertAdjacentHTML('beforeend', helpHtml);
+      const helpOverlay = document.getElementById('helpOverlay');
+      document.getElementById('helpBtn').onclick = () => { helpOverlay.style.display = 'flex'; };
+      document.getElementById('hClose').onclick = () => { helpOverlay.style.display = 'none'; };
+      helpOverlay.addEventListener('click', (e)=>{ if(e.target===helpOverlay) helpOverlay.style.display='none'; });
     </script>
   </body>
   </html>

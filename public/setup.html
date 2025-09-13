@@ -23,10 +23,6 @@
   <body>
     <header>
       <div>Setup — <span id="code"></span></div>
-      <div>
-        <a id="openBoard" class="btn" href="#">Open Board</a>
-        <a id="openAdmin" class="btn" href="#">Go to Admin</a>
-      </div>
     </header>
     <div class="container">
       <div class="card">
@@ -64,7 +60,7 @@
         </div>
         <div class="row" style="margin-top:14px;">
           <button id="saveDur">Save Timers</button>
-          <button id="startCreate" class="btn">Start Create Phase</button>
+          <button id="startCreate" class="btn">Start Creating Topics</button>
         </div>
       </div>
       <div class="card">
@@ -81,8 +77,6 @@
       const meetingId = location.pathname.split('/').pop().toUpperCase();
       const adminToken = localStorage.getItem(`adminToken:${meetingId}`) || '';
       document.getElementById('code').textContent = meetingId;
-      document.getElementById('openBoard').href = `/board/${meetingId}`;
-      document.getElementById('openAdmin').href = `/admin/${meetingId}`;
       document.getElementById('shareLink').textContent = `${location.origin}/join/${meetingId}`;
 
       const socket = io();
@@ -97,7 +91,8 @@
       };
       document.getElementById('startCreate').onclick = () => {
         socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: Number(durCreate.value)||undefined });
-        alert('Create phase started');
+        // After starting, go to the Admin board view
+        location.href = `/admin/${meetingId}`;
       };
 
       socket.on('state', (state) => {

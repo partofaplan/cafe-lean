@@ -1,0 +1,52 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+env:
+  SERVICE: ${{ secrets.GCP_SERVICE }}
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_SERVICE }}:${{ github.sha }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 3000 \
+            --cpu 1 --memory 512Mi \
+            --concurrency 500 \
+            --timeout 3600 \
+            --max-instances 1 \
+            --min-instances 1 \
+            --set-env-vars MAX_VOTES=3,DEFAULT_CREATE_MIN=5,DEFAULT_VOTING_MIN=3,DEFAULT_DISCUSS_MIN=5

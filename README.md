@@ -107,3 +107,33 @@ Notes:
 - `persistence.enabled`: enable PVC for `/app/data` (default false)
 - `persistence.size`: PVC size (default 1Gi)
 - `persistence.storageClass`: set storage class if needed
+
+## Google Cloud Run
+
+Cheapest managed option with minimal ops. This app is WebSocket-friendly and binds to `PORT` (default 3000), which Cloud Run supports.
+
+Important notes:
+- This app currently stores state in-memory and to a local file under `/app/data`. Cloud Run instances are ephemeral and may scale to zero; use `--max-instances=1` to keep a single instance and accept loss of state on redeploys. For persistent state across restarts, wire Firestore/Redis later.
+
+One-time setup:
+- Install gcloud CLI and authenticate: `gcloud auth login && gcloud auth application-default login`
+- Set project and enable APIs:
+  - `gcloud config set project <PROJECT_ID>`
+  - `gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com`
+
+Manual deploy script:
+- Use your Docker Hub image (no build in GCP):
+  - `PROJECT_ID=<PROJECT_ID> REGION=<REGION> SERVICE=cafe-lean IMAGE=docker.io/partofaplan/cafe-lean:0.2.0 ./scripts/deploy-cloudrun.sh`
+- Or build to GCR/Artifact Registry (uses Cloud Build):
+  - `PROJECT_ID=<PROJECT_ID> REGION=<REGION> SERVICE=cafe-lean IMAGE=gcr.io/<PROJECT_ID>/cafe-lean:$(git rev-parse --short HEAD) ./scripts/deploy-cloudrun.sh`
+- Outputs the service URL when complete.
+
+GitHub Actions (optional):
+- Create a GCP service account with Cloud Run + Artifact Registry + Cloud Build permissions (e.g., roles/run.admin, roles/artifactregistry.admin, roles/cloudbuild.builds.editor).
+- Create a JSON key and add these GitHub secrets in your repo:
+  - `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_SERVICE` (e.g., `cafe-lean`), `GCP_SA_KEY` (the JSON key content)
+- On push to `main`, `.github/workflows/deploy-cloudrun.yml` builds and deploys.
+ - If you prefer deploying a pre-built Docker Hub image in CI, you can modify the workflow to skip the build and just run `gcloud run deploy ... --image docker.io/partofaplan/cafe-lean:<tag>`.
+
+Custom domain:
+- Cloud Run → Custom Domains to map your domain to the service; or keep the default run.app URL.

@@ -15,6 +15,8 @@
       .col { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; display:flex; flex-direction:column; }
       .col h2 { font-size: 18px; margin: 12px; color: var(--muted); display:flex; justify-content:space-between; align-items:center; }
       .list { padding: 0 12px 12px; overflow-y:auto; min-height: 100px; }
+      .list.drop-target { outline: 2px dashed var(--primary); outline-offset: -6px; }
+      .card[draggable="true"] { cursor: grab; }
       .card { background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; display:flex; justify-content:space-between; gap: 10px; align-items:center; }
       .card .left { display:flex; flex-direction:column; gap:6px; }
       .votes { color: var(--primary); font-weight: 600; }
@@ -104,6 +106,16 @@
       };
 
       const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
+      // Enable drag-and-drop between columns
+      for (const [colName, listEl] of Object.entries(cols)){
+        listEl.addEventListener('dragover', (e) => { e.preventDefault(); listEl.classList.add('drop-target'); });
+        listEl.addEventListener('dragleave', () => listEl.classList.remove('drop-target'));
+        listEl.addEventListener('drop', (e) => {
+          e.preventDefault(); listEl.classList.remove('drop-target');
+          const topicId = e.dataTransfer && e.dataTransfer.getData('text/plain');
+          if (topicId) move(topicId, colName);
+        });
+      }
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
       function move(topicId, column){ const adminToken = tokenInput.value.trim(); socket.emit('move_topic', { meetingId, topicId, column, adminToken }); }
       function startDiscuss(topicId){ const adminToken = tokenInput.value.trim(); const mins = (durations && durations.discuss) ? Number(durations.discuss) : undefined; socket.emit('start_phase', { meetingId, adminToken, phase:'discuss', topicId, minutes: mins }); }
@@ -191,6 +203,9 @@
         for (const col of ['todo','doing','done']){
           for (const t of sort(byCol[col])){
             const c = el({ className: 'card' });
+            // Make cards draggable for drag-and-drop moves
+            c.setAttribute('draggable', 'true');
+            c.addEventListener('dragstart', (e) => { if(e.dataTransfer){ e.dataTransfer.setData('text/plain', t.id); } });
             const left = el({ className:'left' });
             left.appendChild(el({ text: t.title }));
             left.appendChild(el({ className:'votes', text: `▲ ${t.votes || 0}` }));

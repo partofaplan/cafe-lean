@@ -19,6 +19,7 @@
       .phase h3 { margin: 0; }
     </style>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/ui.js"></script>
   </head>
   <body>
     <header>
@@ -87,7 +88,7 @@
       const durDiscuss = document.getElementById('durDiscuss');
       document.getElementById('saveDur').onclick = () => {
         socket.emit('set_durations', { meetingId, adminToken, create: durCreate.value, voting: durVote.value, discuss: durDiscuss.value });
-        alert('Saved timers');
+        toast('Saved timers', 'success');
       };
       document.getElementById('startCreate').onclick = () => {
         socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: Number(durCreate.value)||undefined });

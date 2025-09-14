@@ -17,6 +17,7 @@
       .list { padding: 0 12px 12px; overflow-y:auto; min-height: 100px; }
       .list.drop-target { outline: 2px dashed var(--primary); outline-offset: -6px; }
       .card[draggable="true"] { cursor: grab; }
+      .card[draggable="true"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
       .card { background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; display:flex; justify-content:space-between; gap: 10px; align-items:center; }
       .card .left { display:flex; flex-direction:column; gap:6px; }
       .votes { color: var(--primary); font-weight: 600; }
@@ -28,8 +29,11 @@
       input[type="text"] { font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid #33407a; background: #0f1630; color: #fff; }
       .muted { color: var(--muted); font-size: 14px; }
       @media (max-width: 900px){ .cols { grid-template-columns: 1fr; } }
+      .progress { position: relative; width: 240px; height: 8px; background: #0f1630; border:1px solid #23305f; border-radius: 999px; overflow: hidden; }
+      .progress .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.3s ease; }
     </style>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/ui.js"></script>
   </head>
   <body>
     <div class="wrap">
@@ -44,7 +48,7 @@
       <div id="phasePrompt" style="display:none; padding:12px; border-bottom:1px solid var(--line); background:#0f1630;">
         <div id="promptText" style="margin-bottom:8px; font-weight:600;"></div>
         <div class="row">
-          <button id="promptAddMinResume" class="btn">+1 min & Resume</button>
+          <button id="promptAddMinResume" class="btn">Continue (+1 min)</button>
           <button id="promptAdvance" class="btn primary">Advance</button>
           <button id="promptDismiss" class="btn">Dismiss</button>
         </div>
@@ -55,6 +59,7 @@
           <div id="phaseLabel" style="font-weight:600;">—</div>
           <div class="muted">Time remaining: <span id="phaseTime">—</span></div>
         </div>
+        <div class="progress" title="Phase progress"><div id="phaseProgressBar" class="bar"></div></div>
         <div class="row">
           <button id="adjustTimers" class="btn">Adjust timers</button>
           <button id="startCreate" class="btn">Start Create</button>
@@ -71,6 +76,7 @@
         <div class="col"><h2>Done</h2><div id="done" class="list"></div></div>
       </div>
       <div style="padding:12px; border-top:1px solid var(--line);" class="muted">
+        <div style="margin-bottom:6px;">Tip: Drag cards between columns to move them.</div>
         <div>Only admins can move/delete topics. Save the admin token provided when creating the meeting.</div>
         <div style="margin-top:8px;">
           Share this link with participants:
@@ -91,7 +97,7 @@
       if (saved) tokenInput.value = saved;
       document.getElementById('saveToken').onclick = () => {
         localStorage.setItem(`adminToken:${meetingId}`, tokenInput.value.trim());
-        alert('Saved admin token for this device.');
+        toast('Saved admin token for this device.', 'success');
       };
 
       socket.emit('join', { meetingId, role: 'admin', adminToken: tokenInput.value.trim() || null });
@@ -101,8 +107,8 @@
       const shareUrl = `${location.origin}/join/${meetingId}`;
       shareLinkEl.value = shareUrl;
       document.getElementById('copyLink').onclick = async () => {
-        try { await navigator.clipboard.writeText(shareUrl); alert('Link copied'); }
-        catch { shareLinkEl.select(); document.execCommand('copy'); alert('Link copied'); }
+        try { await navigator.clipboard.writeText(shareUrl); toast('Link copied', 'success'); }
+        catch { shareLinkEl.select(); document.execCommand('copy'); toast('Link copied', 'success'); }
       };
 
       const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
@@ -114,6 +120,9 @@
           e.preventDefault(); listEl.classList.remove('drop-target');
           const topicId = e.dataTransfer && e.dataTransfer.getData('text/plain');
           if (topicId) move(topicId, colName);
+          if (colName === 'doing' && topicId) {
+            if (currentPhase !== 'discuss') { showStartDiscussPrompt(topicId); toast('Moved to Discussing — press D to start timer', 'info', 3500); }
+          }
         });
       }
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
@@ -150,6 +159,7 @@
       };
 
       let phaseTicker = null; let lastNow = 0; let endsAt = 0; let currentPhase = null; let currentTopicId = null; let topicsIdx = new Map(); let paused = false; let remainingMs = 0;
+      const progressBar = document.getElementById('phaseProgressBar');
       function updatePhaseUI(){
         if (!currentPhase){ phaseLabel.textContent = '—'; phaseTime.textContent = '—'; return; }
         let label = currentPhase;
@@ -164,6 +174,11 @@
         const rem = base;
         const m = Math.floor(rem/60), s = rem%60;
         phaseTime.textContent = `${m}:${String(s).padStart(2,'0')}`;
+        const totalMin = (durations && durations[currentPhase]) ? Number(durations[currentPhase]) : null;
+        if (totalMin && totalMin > 0){
+          const pct = Math.max(0, Math.min(100, Math.round((1 - (rem / (totalMin*60))) * 100)));
+          progressBar.style.width = `${pct}%`;
+        } else { progressBar.style.width = '0%'; }
       }
       function startTicker(){ if (phaseTicker) clearInterval(phaseTicker); phaseTicker = setInterval(updatePhaseUI, 500); }
 
@@ -180,13 +195,23 @@
       promptAdvance.onclick = () => {
         const adminToken = tokenInput.value.trim();
         if (currentPhase === 'create') { socket.emit('start_phase', { meetingId, adminToken, phase:'voting' }); }
-        else if (currentPhase === 'voting') { alert('Move a topic to Discussing and click Start Timer when ready.'); }
+        else if (currentPhase === 'voting') { toast('Drag a topic to Discussing, then click Start Timer.', 'info'); }
         else if (currentPhase === 'discuss') {
           if (currentTopicId) { socket.emit('move_topic', { meetingId, topicId: currentTopicId, column:'done', adminToken }); }
           socket.emit('end_phase', { meetingId, adminToken });
         }
         hidePrompt();
       };
+      const defaultAdvanceHandler = promptAdvance.onclick;
+      function showStartDiscussPrompt(topicId){
+        promptText.textContent = 'Start the discussion timer now?';
+        phasePrompt.style.display = 'block';
+        promptAddMinResume.style.display = 'none';
+        const oldText = promptAdvance.textContent;
+        promptAdvance.textContent = 'Start Timer';
+        promptAdvance.onclick = () => { startDiscuss(topicId); promptAdvance.onclick = defaultAdvanceHandler; promptAdvance.textContent = oldText; promptAddMinResume.style.display = ''; hidePrompt(); };
+        promptDismiss.onclick = () => { promptAdvance.onclick = defaultAdvanceHandler; promptAdvance.textContent = oldText; promptAddMinResume.style.display = ''; hidePrompt(); };
+      }
 
       socket.on('state', (state) => {
         // Durations
@@ -201,10 +226,20 @@
         for (const t of state.topics){ byCol[t.column||'todo'].push(t); topicsIdx.set(t.id, t); }
         const sort = arr => arr.sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
         for (const col of ['todo','doing','done']){
+          if (byCol[col].length === 0) {
+            const hint = document.createElement('div');
+            hint.className = 'muted';
+            hint.style.margin = '12px 0';
+            hint.textContent = col === 'todo' ? 'No topics yet. Start the Create phase so participants can add topics.'
+                              : col === 'doing' ? 'Drag a topic here to start discussing it.'
+                              : 'Completed discussions appear here.';
+            cols[col].appendChild(hint);
+          }
           for (const t of sort(byCol[col])){
             const c = el({ className: 'card' });
-            // Make cards draggable for drag-and-drop moves
+            // Make cards draggable and focusable for drag-and-drop moves
             c.setAttribute('draggable', 'true');
+            c.setAttribute('tabindex', '0');
             c.addEventListener('dragstart', (e) => { if(e.dataTransfer){ e.dataTransfer.setData('text/plain', t.id); } });
             const left = el({ className:'left' });
             left.appendChild(el({ text: t.title }));
@@ -222,7 +257,7 @@
       socket.on('phase_expired', ({ phase }) => {
         if (phase === 'create') showPrompt('Create phase ended. Add 1 minute or go to Voting?');
         else if (phase === 'voting') showPrompt('Voting ended. Add 1 minute or pick a topic to discuss.');
-        else if (phase === 'discuss') showPrompt('Discussion time ended. Add 1 minute or complete the topic and pick another.');
+        else if (phase === 'discuss') showPrompt('Continue discussion? Add 1 minute or complete the topic and pick another.');
       });
 
       // ----- Timers modal -----
@@ -290,6 +325,37 @@
       document.getElementById('helpBtn').onclick = () => { helpOverlay.style.display = 'flex'; };
       document.getElementById('hClose').onclick = () => { helpOverlay.style.display = 'none'; };
       helpOverlay.addEventListener('click', (e)=>{ if(e.target===helpOverlay) helpOverlay.style.display='none'; });
+
+      // First-time onboarding: show help once and hint shortcuts
+      try {
+        const key = 'onboarded_admin_v1';
+        if (!localStorage.getItem(key)){
+          helpOverlay.style.display = 'flex';
+          localStorage.setItem(key, '1');
+          toast('Shortcuts: P pause/resume, + add minute, V voting, D discuss', 'info', 5000);
+        }
+      } catch {}
+
+      // Keyboard shortcuts
+      document.addEventListener('keydown', (e) => {
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea' || e.isComposing) return;
+        if (e.key === 'p' || e.key === 'P'){
+          const adminToken = tokenInput.value.trim();
+          if (paused) socket.emit('resume_phase', { meetingId, adminToken }); else socket.emit('pause_phase', { meetingId, adminToken });
+        } else if (e.key === '+' || e.key === '='){
+          const adminToken = tokenInput.value.trim(); socket.emit('add_minute', { meetingId, adminToken }); toast('+1 minute', 'success');
+        } else if (e.key === 'v' || e.key === 'V'){
+          const adminToken = tokenInput.value.trim(); socket.emit('start_phase', { meetingId, adminToken, phase: 'voting', minutes: durations && durations.voting ? Number(durations.voting) : undefined });
+        } else if (e.key === 'd' || e.key === 'D'){
+          if (currentTopicId) { startDiscuss(currentTopicId); }
+          else {
+            const doing = Array.from(topicsIdx.values()).filter(t => t.column === 'doing');
+            if (doing.length === 1) startDiscuss(doing[0].id);
+            else toast('Drag a topic to Discussing, then press D to start.', 'info');
+          }
+        }
+      });
     </script>
   </body>
   </html>

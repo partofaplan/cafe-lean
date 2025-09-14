@@ -14,10 +14,25 @@
       input[type="text"] { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #33407a; background: #0f1630; color: #fff; }
       button { font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #3759a3; background:#13204a; color:#fff; cursor:pointer; }
       .list .item { display:flex; justify-content:space-between; align-items:center; background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; }
+      /* Status highlighting for topic columns */
+      .list .item.status-todo { border-left: 4px solid #60a5fa; }
+      .list .item.status-doing { border-left: 4px solid #f59e0b; background: #1f1a0e; }
+      .list .item.status-done { border-left: 4px solid #10b981; opacity: 0.95; }
+      .status-pill { display:inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid #33407a; color: #a3b0d4; }
+      .status-pill.todo { border-color:#2563eb; color:#93c5fd; }
+      .status-pill.doing { border-color:#92400e; color:#fbbf24; }
+      .status-pill.done { border-color:#065f46; color:#6ee7b7; }
       .votes { color: var(--accent); font-weight: 600; }
       .muted { color: var(--muted); font-size: 14px; }
+      .progress { position: relative; width: 240px; height: 8px; background: #0f1630; border:1px solid #23305f; border-radius: 999px; overflow: hidden; }
+      .progress .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.3s ease; }
+      .phase-banner { margin: 12px 0; padding: 10px 12px; border-radius: 10px; font-weight: 600; }
+      .phase-create { background: #0b3d13; border: 1px solid #14532d; color: #bbf7d0; }
+      .phase-voting { background: #0b2a4d; border: 1px solid #1e3a8a; color: #bfdbfe; }
+      .phase-discuss { background: #4d2a0b; border: 1px solid #92400e; color: #fde68a; }
     </style>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/ui.js"></script>
   </head>
   <body>
     <header>
@@ -26,9 +41,11 @@
         <div class="muted">Phase: <span id="phaseLabel">—</span> • Time: <span id="phaseTime">—</span> • Votes remaining: <span id="remaining">0</span></div>
         <button id="helpBtn" title="Lean Coffee rules" style="font-size:14px; padding:6px 10px;">?</button>
       </div>
+      <div class="progress" title="Phase progress" style="margin: 8px 16px 0 16px;"><div id="phaseProgressBar" class="bar"></div></div>
     </header>
     <div class="container">
-      <div class="card">
+      <div id="phaseBanner" class="phase-banner" style="display:none;">—</div>
+      <div id="createCard" class="card">
         <div class="row">
           <input id="topicInput" type="text" placeholder="Propose a topic" maxlength="200" />
           <button id="submitBtn">Submit</button>
@@ -50,14 +67,23 @@
       socket.emit('join', { meetingId, role: 'participant', id: participantId });
 
       const topicInput = document.getElementById('topicInput');
-      document.getElementById('submitBtn').onclick = () => {
+      const submitBtn = document.getElementById('submitBtn');
+      const createCard = document.getElementById('createCard');
+      const phaseBanner = document.getElementById('phaseBanner');
+      function submitTopic(){
         const title = topicInput.value.trim(); if(!title) return;
+        if (currentPhase !== 'create') { toast('Topic submission opens during Create phase', 'info'); return; }
         socket.emit('submit_topic', { meetingId, title, authorId: participantId });
         topicInput.value = '';
-      };
+      }
+      submitBtn.onclick = submitTopic;
+      topicInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); submitTopic(); }
+      });
 
       let maxVotes = 3; let voted = new Set(); let latestState = null;
-      let currentPhase = null; let endsAt = 0; let phaseTicker = null; let paused=false; let remainingMs=0;
+      let currentPhase = null; let endsAt = 0; let phaseTicker = null; let paused=false; let remainingMs=0; let durations = { create:5, voting:3, discuss:5 };
+      const progressBar = document.getElementById('phaseProgressBar');
       function refreshRemaining(){ document.getElementById('remaining').textContent = Math.max(0, maxVotes - voted.size); }
       function updatePhaseUI(){
         const phaseLabel = document.getElementById('phaseLabel'); const phaseTime = document.getElementById('phaseTime');
@@ -68,39 +94,70 @@
         const rem = Math.max(0, Math.floor(((paused ? remainingMs : (endsAt - now)))/1000));
         const m = Math.floor(rem/60), s = rem%60;
         phaseTime.textContent = `${m}:${String(s).padStart(2,'0')}`;
-        const submitBtn = document.getElementById('submitBtn');
+        const totalMin = (durations && durations[currentPhase]) ? Number(durations[currentPhase]) : null;
+        if (totalMin && totalMin > 0){
+          const pct = Math.max(0, Math.min(100, Math.round((1 - (rem / (totalMin*60))) * 100)));
+          progressBar.style.width = `${pct}%`;
+        } else { progressBar.style.width = '0%'; }
         const submitHelp = document.getElementById('submitHelp');
         const allowed = currentPhase === 'create';
-        submitBtn.disabled = !allowed;
-        submitBtn.textContent = allowed ? 'Submit' : 'Submit (Create phase only)';
-        submitHelp.textContent = allowed ? 'Max 200 characters. Everyone can see your topic title.' : 'Topic submission opens during the Create phase. Please wait for the facilitator to start it.';
+        if (createCard) createCard.style.display = allowed ? '' : 'none';
+        if (submitHelp) submitHelp.textContent = 'Max 200 characters. Everyone can see your topic title.';
+        // Phase banner
+        if (!currentPhase) {
+          phaseBanner.style.display = 'none';
+        } else {
+          phaseBanner.style.display = '';
+          const plainLabel = (currentPhase === 'create') ? 'Create' : (currentPhase === 'voting' ? 'Voting' : 'Discuss');
+          phaseBanner.textContent = `Current phase: ${plainLabel}${paused ? ' (Paused)' : ''}`;
+          phaseBanner.className = `phase-banner ${currentPhase === 'create' ? 'phase-create' : currentPhase === 'voting' ? 'phase-voting' : 'phase-discuss'}`;
+        }
       }
       function startTicker(){ if (phaseTicker) clearInterval(phaseTicker); phaseTicker = setInterval(updatePhaseUI, 500); }
 
       function render(state){
         maxVotes = state?.config?.MAX_VOTES_PER_PARTICIPANT ?? 3;
         // Phase
+        if (state.durations) durations = state.durations;
         currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0; updatePhaseUI(); startTicker();
         const list = document.getElementById('list'); list.innerHTML = '';
         const items = state.topics.slice().sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
+        if (items.length === 0){
+          const empty = document.createElement('div');
+          empty.className = 'muted';
+          empty.style.marginTop = '8px';
+          empty.textContent = currentPhase === 'create' ? 'Be the first to propose a topic!' : 'No topics yet. Topics will appear once the Create phase starts.';
+          list.appendChild(empty);
+        }
         for (const t of items){
           const div = document.createElement('div'); div.className = 'item';
+          const col = t.column || 'todo';
+          div.classList.add(`status-${col}`);
           const left = document.createElement('div'); left.textContent = t.title; div.appendChild(left);
+          // Add a small status pill under the title
+          const statusWrap = document.createElement('div'); statusWrap.style.marginTop = '4px';
+          const pill = document.createElement('span');
+          pill.className = `status-pill ${col}`;
+          pill.textContent = col === 'doing' ? 'Discussing' : (col === 'done' ? 'Done' : 'To Discuss');
+          statusWrap.appendChild(pill);
+          left.appendChild(statusWrap);
           const right = document.createElement('div');
-          const btn = document.createElement('button');
-          const has = voted.has(t.id);
-          btn.textContent = has ? 'Unvote' : 'Vote';
-          if (!has && (voted.size >= maxVotes || currentPhase !== 'voting')) { btn.disabled = true; }
-          btn.onclick = () => {
-            if (voted.has(t.id)) {
-              socket.emit('unvote', { meetingId, participantId, topicId: t.id });
-            } else {
-              if (voted.size >= maxVotes) { alert('No votes remaining'); return; }
-              if (currentPhase !== 'voting') { alert('Voting is not active'); return; }
-              socket.emit('vote', { meetingId, participantId, topicId: t.id });
-            }
-          };
-          right.appendChild(btn);
+          if (currentPhase === 'voting'){
+            const btn = document.createElement('button');
+            const has = voted.has(t.id);
+            btn.textContent = has ? 'Unvote' : 'Vote';
+            if (!has && (voted.size >= maxVotes)) { btn.disabled = true; }
+            btn.onclick = () => {
+              if (voted.has(t.id)) {
+                socket.emit('unvote', { meetingId, participantId, topicId: t.id });
+              } else {
+                if (voted.size >= maxVotes) { toast('No votes remaining', 'error'); return; }
+                btn.disabled = true; // optimistic lockout to avoid double clicks
+                socket.emit('vote', { meetingId, participantId, topicId: t.id });
+              }
+            };
+            right.appendChild(btn);
+          }
           const votes = document.createElement('span'); votes.className = 'votes'; votes.textContent = ` ▲ ${t.votes || 0}`;
           right.appendChild(votes);
           div.appendChild(right);
@@ -136,6 +193,15 @@
       document.getElementById('helpBtn').onclick = () => { helpOverlay.style.display = 'flex'; };
       document.getElementById('hClose').onclick = () => { helpOverlay.style.display = 'none'; };
       helpOverlay.addEventListener('click', (e)=>{ if(e.target===helpOverlay) helpOverlay.style.display='none'; });
+
+      // First-time onboarding for participants
+      try {
+        const key = 'onboarded_join_v1';
+        if (!localStorage.getItem(key)){
+          helpOverlay.style.display = 'flex';
+          localStorage.setItem(key, '1');
+        }
+      } catch {}
     </script>
   </body>
   </html>

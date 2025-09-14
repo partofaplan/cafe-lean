@@ -20,6 +20,7 @@
       .banner { margin: 0 auto 16px; display: block; width: 100%; max-width: 900px; border-radius: 16px; border: 1px solid #253160; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 1, 1); white-space: nowrap; border: 0; }
     </style>
+    <script src="/ui.js"></script>
   </head>
   <body>
     <div class="container">
@@ -45,7 +46,7 @@
       startBtn.addEventListener('click', async () => {
         const input = prompt('Enter a meeting code (4-12 letters/numbers):');
         const meetingId = norm(input);
-        if (!meetingId || meetingId.length < 4 || meetingId.length > 12) return alert('Invalid code. Use 4-12 letters/numbers.');
+        if (!meetingId || meetingId.length < 4 || meetingId.length > 12) return toast('Invalid code. Use 4-12 letters/numbers.', 'error');
         try {
           const res = await fetch('/api/create-with-id', {
             method: 'POST',
@@ -53,14 +54,19 @@
             body: JSON.stringify({ meetingId })
           });
           if (!res.ok) {
+            // If meeting already exists, go to setup page (token must already be saved on this device)
+            if (res.status === 409) {
+              location.href = `/setup/${meetingId}`;
+              return;
+            }
             const data = await res.json().catch(()=>({}));
-            return alert(data.error || 'Failed to create meeting');
+            return toast(data.error || 'Failed to create meeting', 'error');
           }
           const data = await res.json();
           try { localStorage.setItem(`adminToken:${data.meetingId}`, data.adminToken); } catch {}
           location.href = `/setup/${data.meetingId}`;
         } catch (e) {
-          alert('Network error creating meeting');
+          toast('Network error creating meeting', 'error');
         }
       });
 

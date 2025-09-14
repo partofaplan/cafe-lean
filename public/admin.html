@@ -210,9 +210,6 @@
             left.appendChild(el({ text: t.title }));
             left.appendChild(el({ className:'votes', text: `▲ ${t.votes || 0}` }));
             const bar = el({ className:'btnbar' });
-            if (t.column !== 'todo') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'To Discuss'}), { onclick: () => move(t.id, 'todo') }));
-            if (t.column !== 'doing') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'Discussing'}), { onclick: () => move(t.id, 'doing') }));
-            if (t.column !== 'done') bar.appendChild(Object.assign(el({ tag:'button', className:'btn' , text:'Done'}), { onclick: () => move(t.id, 'done') }));
             if (t.column === 'doing') bar.appendChild(Object.assign(el({ tag:'button', className:'btn primary', text:'Start Timer'}), { onclick: () => startDiscuss(t.id) }));
             bar.appendChild(Object.assign(el({ tag:'button', className:'btn danger', text:'Delete'}), { onclick: () => del(t.id) }));
             c.appendChild(left); c.appendChild(bar);

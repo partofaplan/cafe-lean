@@ -19,14 +19,18 @@
       .votes { color: var(--accent); font-weight: 600; }
       .footer { padding: 8px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
       @media (max-width: 900px){ .cols { grid-template-columns: 1fr; } }
+      .progress { position: relative; width: 240px; height: 8px; background: #0f1630; border:1px solid #23305f; border-radius: 999px; overflow: hidden; }
+      .progress .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.3s ease; }
     </style>
     <script src="/socket.io/socket.io.js"></script>
+    <script src="/ui.js"></script>
   </head>
   <body>
     <div class="wrap">
       <header>
         <div class="title">Lean Coffee — Board <span id="code"></span></div>
         <div class="muted">Phase: <span id="phaseLabel">—</span> • Time: <span id="phaseTime">—</span> • Read-only display</div>
+        <div class="progress" title="Phase progress"><div id="phaseProgressBar" class="bar"></div></div>
       </header>
       <div class="cols">
         <div class="col"><h2>To Discuss</h2><div id="todo" class="list"></div></div>
@@ -34,7 +38,7 @@
         <div class="col"><h2>Done</h2><div id="done" class="list"></div></div>
       </div>
       <div class="footer">
-        Participants: <span id="participants">0</span> • Votes cast: <span id="votes">0</span>
+        Participants: <span id="participants">0</span> • Votes cast: <span id="votes">0</span> • Tip: Facilitator drags topics between columns
       </div>
     </div>
 
@@ -46,7 +50,8 @@
 
       function el({ tag='div', text, className }){ const e = document.createElement(tag); if(text) e.textContent=text; if(className) e.className=className; return e; }
 
-      let currentPhase = null; let endsAt = 0; let ticker = null; let paused=false; let remainingMs=0;
+      let currentPhase = null; let endsAt = 0; let ticker = null; let paused=false; let remainingMs=0; let durations = { create:5, voting:3, discuss:5 };
+      const progressBar = document.getElementById('phaseProgressBar');
       function updatePhase(){
         const labelEl = document.getElementById('phaseLabel'); const timeEl = document.getElementById('phaseTime');
         let label = '—'; if (currentPhase === 'create') label='Creating'; else if (currentPhase === 'voting') label='Voting'; else if (currentPhase === 'discuss') label='Discussing';
@@ -54,10 +59,16 @@
         labelEl.textContent = label;
         const rem = Math.max(0, Math.floor(((paused ? remainingMs : (endsAt - Date.now())))/1000));
         const m = Math.floor(rem/60), s = rem%60; timeEl.textContent = `${m}:${String(s).padStart(2,'0')}`;
+        const totalMin = (durations && durations[currentPhase]) ? Number(durations[currentPhase]) : null;
+        if (totalMin && totalMin > 0){
+          const pct = Math.max(0, Math.min(100, Math.round((1 - (rem / (totalMin*60))) * 100)));
+          progressBar.style.width = `${pct}%`;
+        } else { progressBar.style.width = '0%'; }
       }
       function startTicker(){ if (ticker) clearInterval(ticker); ticker = setInterval(updatePhase, 500); }
 
       socket.on('state', (state) => {
+        if (state.durations) durations = state.durations;
         currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0; updatePhase(); startTicker();
         const cols = { todo: document.getElementById('todo'), doing: document.getElementById('doing'), done: document.getElementById('done') };
         for (const k of Object.keys(cols)) cols[k].innerHTML = '';
@@ -65,6 +76,12 @@
         for (const t of state.topics) byCol[t.column||'todo'].push(t);
         const sort = arr => arr.sort((a,b)=> b.votes - a.votes || a.createdAt - b.createdAt);
         for (const col of ['todo','doing','done']){
+          if (byCol[col].length === 0){
+            const hint = document.createElement('div');
+            hint.className = 'muted'; hint.style.margin = '12px 0';
+            hint.textContent = col === 'todo' ? 'No topics yet.' : (col === 'doing' ? 'Facilitator will drag a topic here when discussing.' : 'Completed discussions appear here.');
+            cols[col].appendChild(hint);
+          }
           for (const t of sort(byCol[col])){
             const c = el({ className: 'card' });
             const title = el({ tag: 'div', text: t.title });

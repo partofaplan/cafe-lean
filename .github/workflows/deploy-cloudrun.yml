@@ -9,7 +9,7 @@ env:
   SERVICE: ${{ secrets.GCP_SERVICE }}
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
-  IMAGE: gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_SERVICE }}:${{ github.sha }}
+  IMAGE: partofaplan/${{ secrets.GCP_SERVICE }}:${{ github.sha }}
 
 jobs:
   build-and-deploy:

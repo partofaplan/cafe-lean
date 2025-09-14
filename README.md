@@ -1,4 +1,4 @@
-# Cafe Lean — Lean Coffee Webapp
+# Cafe Lean — Lean Coffee Webapp - Testing
 
 A minimal Lean Coffee board with a shared display, admin controls, and participant voting.
 

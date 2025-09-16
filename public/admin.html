@@ -60,8 +60,9 @@
           <div class="muted">Time remaining: <span id="phaseTime">—</span></div>
         </div>
         <div class="progress" title="Phase progress"><div id="phaseProgressBar" class="bar"></div></div>
+        <div class="muted">Votes per participant: <span id="voteLimit">3</span></div>
         <div class="row">
-          <button id="adjustTimers" class="btn">Adjust timers</button>
+          <button id="adjustTimers" class="btn">Customize timers and votes</button>
           <button id="startCreate" class="btn">Start Create</button>
           <button id="startVote" class="btn">Start Voting</button>
           <button id="pausePhase" class="btn">Pause</button>
@@ -134,6 +135,13 @@
       const phaseLabel = document.getElementById('phaseLabel');
       const phaseTime = document.getElementById('phaseTime');
       let durations = { create: 5, voting: 3, discuss: 5 };
+      let voteLimit = 3;
+      const voteLimitEl = document.getElementById('voteLimit');
+      function updateVoteLimitUI(){
+        if (voteLimitEl) voteLimitEl.textContent = voteLimit;
+        const allowance = document.getElementById('adminVoteAllowance');
+        if (allowance) allowance.textContent = voteLimit === 1 ? '1 vote' : `${voteLimit} votes`;
+      }
       // Adjust timers modal
       const adjustBtn = document.getElementById('adjustTimers');
       adjustBtn.onclick = () => { openTimersModal(); };
@@ -214,8 +222,13 @@
       }
 
       socket.on('state', (state) => {
-        // Durations
-        if (state.durations){ durations = state.durations; preloadTimersModal(durations); }
+        // Durations & vote limit
+        if (state.durations){ durations = state.durations; }
+        if (state.config && typeof state.config.maxVotesPerParticipant === 'number') {
+          voteLimit = state.config.maxVotesPerParticipant;
+        }
+        preloadTimersModal(durations);
+        updateVoteLimitUI();
         // Phase
         currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; lastNow = state.now || Date.now(); currentTopicId = state.currentTopicId || null; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0;
         updatePhaseUI(); startTicker();
@@ -278,6 +291,11 @@
               <label style="min-width:110px;">Discuss</label>
               <input id="mDurDiscuss" type="number" min="1" max="60" style="width:100px;" />
             </div>
+            <div class="row" style="margin-top:8px;">
+              <label style="min-width:110px;">Votes per person</label>
+              <input id="mVoteLimit" type="number" min="1" max="10" style="width:100px;" />
+            </div>
+            <div class="muted" style="margin-top:6px;">Changes apply immediately for everyone.</div>
             <div class="row" style="margin-top:12px;justify-content:flex-end;">
               <button id="mCancel" class="btn">Cancel</button>
               <button id="mSave" class="btn primary">Save</button>
@@ -287,8 +305,12 @@
       document.body.insertAdjacentHTML('beforeend', modalHtml);
       const overlay = document.getElementById('timersOverlay');
       function preloadTimersModal(d){
-        const c=document.getElementById('mDurCreate'); const v=document.getElementById('mDurVote'); const s=document.getElementById('mDurDiscuss');
-        if (c) c.value = d.create; if (v) v.value = d.voting; if (s) s.value = d.discuss;
+        if (!d) d = durations;
+        const c=document.getElementById('mDurCreate'); const v=document.getElementById('mDurVote'); const s=document.getElementById('mDurDiscuss'); const mv=document.getElementById('mVoteLimit');
+        if (c && d.create != null) c.value = d.create;
+        if (v && d.voting != null) v.value = d.voting;
+        if (s && d.discuss != null) s.value = d.discuss;
+        if (mv) mv.value = voteLimit;
       }
       function openTimersModal(){ overlay.style.display='flex'; preloadTimersModal(durations); }
       function closeTimersModal(){ overlay.style.display='none'; }
@@ -300,6 +322,10 @@
         const v = Number(document.getElementById('mDurVote').value)||durations.voting;
         const s = Number(document.getElementById('mDurDiscuss').value)||durations.discuss;
         socket.emit('set_durations', { meetingId, adminToken, create: c, voting: v, discuss: s });
+        const votesVal = Number(document.getElementById('mVoteLimit').value);
+        if (Number.isFinite(votesVal) && votesVal >= 1 && votesVal !== voteLimit){
+          socket.emit('set_vote_limit', { meetingId, adminToken, maxVotes: votesVal });
+        }
         closeTimersModal();
       };
 
@@ -310,7 +336,7 @@
             <h3 style="margin-top:0;margin-bottom:8px;">Lean Coffee — How it works</h3>
             <ul style="line-height:1.5; margin-left: 18px;">
               <li>Everyone proposes topics during the <strong>Create</strong> phase.</li>
-              <li>Each participant gets <strong>3 votes</strong> to prioritize topics in the <strong>Voting</strong> phase.</li>
+              <li>Each participant gets <strong id="adminVoteAllowance">3 votes</strong> in the <strong>Voting</strong> phase. Adjust this under Adjust timers.</li>
               <li>Discuss topics in order of votes. Each discussion is <strong>time‑boxed</strong>.</li>
               <li>At the end of a timer, choose to <strong>continue</strong> or <strong>move on</strong> to the next topic.</li>
               <li>Columns: <strong>To Discuss</strong>, <strong>Discussing</strong>, <strong>Done</strong>. Only admins move topics.</li>
@@ -322,6 +348,7 @@
         </div>`;
       document.body.insertAdjacentHTML('beforeend', helpHtml);
       const helpOverlay = document.getElementById('helpOverlay');
+      updateVoteLimitUI();
       document.getElementById('helpBtn').onclick = () => { helpOverlay.style.display = 'flex'; };
       document.getElementById('hClose').onclick = () => { helpOverlay.style.display = 'none'; };
       helpOverlay.addEventListener('click', (e)=>{ if(e.target===helpOverlay) helpOverlay.style.display='none'; });

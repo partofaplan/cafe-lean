@@ -13,7 +13,8 @@
       .row { display:flex; gap: 8px; align-items:center; }
       input[type="text"] { width: 100%; font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #33407a; background: #0f1630; color: #fff; }
       button { font-size: 16px; padding: 10px 12px; border-radius: 8px; border: 1px solid #3759a3; background:#13204a; color:#fff; cursor:pointer; }
-      .list .item { display:flex; justify-content:space-between; align-items:center; background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; }
+      .list .item { display:flex; justify-content:space-between; align-items:flex-start; gap: 12px; background: #111a3b; border:1px solid #2b3a79; border-radius:10px; padding:10px 12px; margin: 10px 0; }
+      .list .item.has-your-vote { border-color:#60a5fa; box-shadow:0 0 0 1px #60a5fa33; }
       /* Status highlighting for topic columns */
       .list .item.status-todo { border-left: 4px solid #60a5fa; }
       .list .item.status-doing { border-left: 4px solid #f59e0b; background: #1f1a0e; }
@@ -23,6 +24,15 @@
       .status-pill.doing { border-color:#92400e; color:#fbbf24; }
       .status-pill.done { border-color:#065f46; color:#6ee7b7; }
       .votes { color: var(--accent); font-weight: 600; }
+      .vote-info { display:flex; flex-direction:column; align-items:flex-end; gap:4px; }
+      .vote-controls { display:flex; flex-direction:column; align-items:center; gap:4px; }
+      .vote-arrow { font-size:18px; line-height:1; padding:4px 8px; border-radius:8px; border:1px solid #3759a3; background:#13204a; color:#93c5fd; cursor:pointer; transition:background 0.2s ease, border-color 0.2s ease; }
+      .vote-arrow.up.selected { background:#1d4ed8; border-color:#1d4ed8; color:#fff; box-shadow:0 0 0 1px #93c5fd44; }
+      .vote-arrow:disabled { opacity:0.4; cursor:not-allowed; }
+      .vote-arrow:not(:disabled):hover { background:#1d2c5c; }
+      .vote-arrow.up.selected:not(:disabled):hover { background:#1e40af; }
+      .vote-total { font-weight:600; color:var(--accent); min-width:24px; text-align:right; }
+      .your-votes { font-size:12px; color:#bfdbfe; background:#10224f; border:1px solid #1d4ed8; border-radius:999px; padding:2px 8px; }
       .muted { color: var(--muted); font-size: 14px; }
       .progress { position: relative; width: 240px; height: 8px; background: #0f1630; border:1px solid #23305f; border-radius: 999px; overflow: hidden; }
       .progress .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #2563eb, #60a5fa); transition: width 0.3s ease; }
@@ -81,10 +91,33 @@
         if (e.key === 'Enter') { e.preventDefault(); submitTopic(); }
       });
 
-      let maxVotes = 3; let voted = new Set(); let latestState = null;
+      let maxVotes = 3; let voted = new Map(); let latestState = null;
+      function adjustLocalVotes(topicId, delta){
+        if (!topicId || !delta) return;
+        const current = Number(voted.get(topicId)) || 0;
+        const next = Math.max(0, current + delta);
+        if (next === 0) voted.delete(topicId); else voted.set(topicId, next);
+      }
+      function rerender(){ if (latestState) render(latestState); else refreshRemaining(); }
+      const votesUsed = () => {
+        let total = 0;
+        voted.forEach((count) => { const n = Number(count) || 0; if (n > 0) total += n; });
+        return total;
+      };
+      function updateVoteAllowance(){
+        const el = document.getElementById('voteAllowance');
+        if (el) {
+          const safe = Number.isFinite(maxVotes) ? maxVotes : 0;
+          el.textContent = safe === 1 ? '1 vote' : `${safe} votes`;
+        }
+      }
       let currentPhase = null; let endsAt = 0; let phaseTicker = null; let paused=false; let remainingMs=0; let durations = { create:5, voting:3, discuss:5 };
       const progressBar = document.getElementById('phaseProgressBar');
-      function refreshRemaining(){ document.getElementById('remaining').textContent = Math.max(0, maxVotes - voted.size); }
+      function refreshRemaining(){
+        const remaining = Math.max(0, maxVotes - votesUsed());
+        document.getElementById('remaining').textContent = remaining;
+        updateVoteAllowance();
+      }
       function updatePhaseUI(){
         const phaseLabel = document.getElementById('phaseLabel'); const phaseTime = document.getElementById('phaseTime');
         let label = '—'; if (currentPhase === 'create') label = 'Creating'; else if (currentPhase === 'voting') label='Voting'; else if (currentPhase === 'discuss') label='Discussing';
@@ -116,7 +149,11 @@
       function startTicker(){ if (phaseTicker) clearInterval(phaseTicker); phaseTicker = setInterval(updatePhaseUI, 500); }
 
       function render(state){
-        maxVotes = state?.config?.MAX_VOTES_PER_PARTICIPANT ?? 3;
+        const configuredMax = state?.config?.maxVotesPerParticipant;
+        if (typeof configuredMax === 'number' && Number.isFinite(configuredMax)) {
+          maxVotes = configuredMax;
+        }
+        if (!Number.isFinite(maxVotes) || maxVotes < 1) maxVotes = 1;
         // Phase
         if (state.durations) durations = state.durations;
         currentPhase = state.phase || null; endsAt = state.phaseEndsAt || 0; paused = !!state.phasePaused; remainingMs = state.phaseRemainingMs || 0; updatePhaseUI(); startTicker();
@@ -133,7 +170,10 @@
           const div = document.createElement('div'); div.className = 'item';
           const col = t.column || 'todo';
           div.classList.add(`status-${col}`);
-          const left = document.createElement('div'); left.textContent = t.title; div.appendChild(left);
+          const yourCount = Number(voted.get(t.id)) || 0;
+          const hasYourVote = yourCount > 0;
+          if (hasYourVote) div.classList.add('has-your-vote');
+          const left = document.createElement('div'); left.textContent = t.title; left.style.flex = '1'; div.appendChild(left);
           // Add a small status pill under the title
           const statusWrap = document.createElement('div'); statusWrap.style.marginTop = '4px';
           const pill = document.createElement('span');
@@ -141,25 +181,45 @@
           pill.textContent = col === 'doing' ? 'Discussing' : (col === 'done' ? 'Done' : 'To Discuss');
           statusWrap.appendChild(pill);
           left.appendChild(statusWrap);
-          const right = document.createElement('div');
-          if (currentPhase === 'voting'){
-            const btn = document.createElement('button');
-            const has = voted.has(t.id);
-            btn.textContent = has ? 'Unvote' : 'Vote';
-            if (!has && (voted.size >= maxVotes)) { btn.disabled = true; }
-            btn.onclick = () => {
-              if (voted.has(t.id)) {
-                socket.emit('unvote', { meetingId, participantId, topicId: t.id });
-              } else {
-                if (voted.size >= maxVotes) { toast('No votes remaining', 'error'); return; }
-                btn.disabled = true; // optimistic lockout to avoid double clicks
-                socket.emit('vote', { meetingId, participantId, topicId: t.id });
-              }
-            };
-            right.appendChild(btn);
+          const right = document.createElement('div'); right.className = 'vote-info';
+          const controls = document.createElement('div'); controls.className = 'vote-controls';
+          const upBtn = document.createElement('button'); upBtn.type = 'button'; upBtn.className = 'vote-arrow up'; upBtn.textContent = '▲';
+          if (hasYourVote) upBtn.classList.add('selected');
+          const canAddVote = currentPhase === 'voting' && votesUsed() < maxVotes;
+          upBtn.disabled = !canAddVote;
+          if (!canAddVote) {
+            upBtn.title = currentPhase !== 'voting' ? 'Voting is closed' : 'No votes remaining';
+          } else {
+            upBtn.title = 'Add a vote to this topic';
           }
-          const votes = document.createElement('span'); votes.className = 'votes'; votes.textContent = ` ▲ ${t.votes || 0}`;
-          right.appendChild(votes);
+          upBtn.onclick = () => {
+            if (currentPhase !== 'voting') return;
+            if (votesUsed() >= maxVotes) { toast('No votes remaining', 'error'); return; }
+            adjustLocalVotes(t.id, 1);
+            rerender();
+            socket.emit('vote', { meetingId, participantId, topicId: t.id });
+          };
+          const votes = document.createElement('span'); votes.className = 'vote-total'; votes.textContent = t.votes || 0;
+          const downBtn = document.createElement('button'); downBtn.type = 'button'; downBtn.className = 'vote-arrow down'; downBtn.textContent = '▼';
+          const canRemoveVote = yourCount > 0;
+          downBtn.disabled = !canRemoveVote;
+          downBtn.title = canRemoveVote ? 'Remove one of your votes from this topic' : 'No votes from you to remove';
+          downBtn.onclick = () => {
+            if (!voted.get(t.id)) return;
+            adjustLocalVotes(t.id, -1);
+            rerender();
+            socket.emit('unvote', { meetingId, participantId, topicId: t.id });
+          };
+          controls.appendChild(upBtn);
+          controls.appendChild(votes);
+          controls.appendChild(downBtn);
+          right.appendChild(controls);
+          if (hasYourVote){
+            const chip = document.createElement('span');
+            chip.className = 'your-votes';
+            chip.textContent = yourCount === 1 ? 'You used 1 vote' : `You used ${yourCount} votes`;
+            right.appendChild(chip);
+          }
           div.appendChild(right);
           list.appendChild(div);
         }
@@ -167,7 +227,17 @@
       }
 
       socket.on('state', (state) => { latestState = state; render(state); });
-      socket.on('your_votes', ({ topicIds, max }) => { voted = new Set(topicIds || []); if (typeof max === 'number') maxVotes = max; if (latestState) render(latestState); else refreshRemaining(); });
+      socket.on('your_votes', ({ topicCounts, max }) => {
+        voted = new Map();
+        if (topicCounts && typeof topicCounts === 'object') {
+          for (const [topicId, count] of Object.entries(topicCounts)) {
+            const n = Number(count) || 0;
+            if (n > 0) voted.set(topicId, n);
+          }
+        }
+        if (typeof max === 'number' && Number.isFinite(max)) maxVotes = max;
+        if (latestState) render(latestState); else refreshRemaining();
+      });
       // Soft update when a new topic is added so everyone stays in sync
       socket.on('topic_added', () => { if (latestState) render(latestState); });
 
@@ -178,7 +248,7 @@
             <h3 style="margin-top:0;margin-bottom:8px;">Lean Coffee — How it works</h3>
             <ul style="line-height:1.5; margin-left: 18px;">
               <li>Propose topics during the <strong>Create</strong> phase.</li>
-              <li>You have <strong>3 votes</strong> total to prioritize topics during <strong>Voting</strong>.</li>
+              <li>You get <strong id="voteAllowance">3 votes</strong> to prioritize topics during <strong>Voting</strong>. Facilitator may adjust this.</li>
               <li>We discuss topics by vote order with <strong>time‑boxed</strong> discussions.</li>
               <li>At a timer end, the facilitator may <strong>continue</strong> or move on.</li>
               <li>Columns: <strong>To Discuss</strong>, <strong>Discussing</strong>, <strong>Done</strong>. Only the facilitator moves topics.</li>
@@ -190,6 +260,7 @@
         </div>`;
       document.body.insertAdjacentHTML('beforeend', helpHtml);
       const helpOverlay = document.getElementById('helpOverlay');
+      updateVoteAllowance();
       document.getElementById('helpBtn').onclick = () => { helpOverlay.style.display = 'flex'; };
       document.getElementById('hClose').onclick = () => { helpOverlay.style.display = 'none'; };
       helpOverlay.addEventListener('click', (e)=>{ if(e.target===helpOverlay) helpOverlay.style.display='none'; });

@@ -27,10 +27,6 @@ A minimal Lean Coffee board with a shared display, admin controls, and participa
 </table>
 <div align="center">
 
-| Join — participant view | Admin settings | Admin board | Participant view |
-| --- | --- | --- |
-| ![Participant join view](demo/Screenshot_2025-09-15_at_7.58.00_PM.png) | ![Admin controls](demo/Screenshot_2025-09-15_at_7.58.34_PM.png) | ![Admin board](demo/Screenshot_2025-09-15_at_8.20.49_PM.png) | ![Shared board](demo/IMG_4912.PNG) | 
-
 <sup>Each card shows how participants submit topics, facilitators manage phases, and the board updates in real time.</sup>
 
 </div>

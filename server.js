@@ -14,15 +14,110 @@ const DEFAULT_VOTING_MIN = parseInt(process.env.DEFAULT_VOTING_MIN || '3', 10);
 const DEFAULT_DISCUSS_MIN = parseInt(process.env.DEFAULT_DISCUSS_MIN || '5', 10);
 const ID = customAlphabet('123456789ABCDEFGHJKLMNPQRSTUVWXYZ', 6);
 const TOPIC_ID = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 10);
-const MAX_VOTES_PER_PARTICIPANT = parseInt(process.env.MAX_VOTES || '3', 10);
+const DEFAULT_MAX_VOTES_PER_PARTICIPANT = parseInt(process.env.MAX_VOTES || '3', 10);
 
 // In-memory store (MVP)
-// meetings: { [meetingId]: { id, adminToken, topics: Topic[], participants: Set<string>, votesByParticipant: Map<participantId, Set<topicId>> } }
+// meetings: { [meetingId]: { id, adminToken, topics: Topic[], participants: Set<string>, votesByParticipant: Map<participantId, VoteRecord> } }
 const meetings = new Map();
+
+function normalizeVoteRecordValue(value) {
+  if (!value) return { total: 0, topics: new Map() };
+  if (value instanceof Map) {
+    // Map of topic -> count but no total yet
+    const total = Array.from(value.values()).reduce((acc, n) => acc + (Number(n) || 0), 0);
+    return { total, topics: new Map(value) };
+  }
+  if (value instanceof Set) {
+    const topics = new Map();
+    for (const topicId of value) {
+      topics.set(topicId, (topics.get(topicId) || 0) + 1);
+    }
+    return { total: value.size, topics };
+  }
+  if (Array.isArray(value?.topics)) {
+    const topics = new Map();
+    for (const [topicId, count] of value.topics) {
+      const n = Number(count) || 0;
+      if (n > 0 && typeof topicId === 'string') {
+        topics.set(topicId, n);
+      }
+    }
+    const total = Number(value.total);
+    const sum = Array.from(topics.values()).reduce((acc, n) => acc + n, 0);
+    return { total: Number.isFinite(total) ? total : sum, topics };
+  }
+  if (value && typeof value === 'object' && value.topics && typeof value.topics === 'object') {
+    const topics = new Map();
+    for (const key of Object.keys(value.topics)) {
+      const n = Number(value.topics[key]) || 0;
+      if (n > 0) topics.set(key, n);
+    }
+    const total = Number(value.total);
+    const sum = Array.from(topics.values()).reduce((acc, n) => acc + n, 0);
+    return { total: Number.isFinite(total) ? total : sum, topics };
+  }
+  if (Array.isArray(value)) {
+    const topics = new Map();
+    for (const topicId of value) {
+      if (typeof topicId === 'string') {
+        topics.set(topicId, (topics.get(topicId) || 0) + 1);
+      }
+    }
+    return { total: value.length, topics };
+  }
+  const total = Number(value.total);
+  if (value.topics instanceof Map) {
+    const sum = Array.from(value.topics.values()).reduce((acc, n) => acc + (Number(n) || 0), 0);
+    return { total: Number.isFinite(total) ? total : sum, topics: new Map(value.topics) };
+  }
+  return { total: Number.isFinite(total) ? total : 0, topics: new Map() };
+}
+
+function normalizeParticipantVotes(meeting, participantId) {
+  if (!participantId) return null;
+  const existing = meeting.votesByParticipant.get(participantId);
+  if (!existing) return null;
+  const normalized = normalizeVoteRecordValue(existing);
+  meeting.votesByParticipant.set(participantId, normalized);
+  return normalized;
+}
+
+function ensureParticipantVotes(meeting, participantId) {
+  if (!participantId) return { total: 0, topics: new Map() };
+  const existing = normalizeParticipantVotes(meeting, participantId);
+  if (existing) return existing;
+  const created = { total: 0, topics: new Map() };
+  meeting.votesByParticipant.set(participantId, created);
+  return created;
+}
+
+function votesRecordToPlainObject(record) {
+  if (!record) return {};
+  if (record.topics instanceof Map) {
+    return Object.fromEntries(record.topics.entries());
+  }
+  if (Array.isArray(record.topics)) {
+    const out = {};
+    for (const [topicId, count] of record.topics) {
+      const n = Number(count) || 0;
+      if (n > 0 && typeof topicId === 'string') out[topicId] = n;
+    }
+    return out;
+  }
+  if (record.topics && typeof record.topics === 'object') {
+    const out = {};
+    for (const key of Object.keys(record.topics)) {
+      const n = Number(record.topics[key]) || 0;
+      if (n > 0) out[key] = n;
+    }
+    return out;
+  }
+  return {};
+}
 
 /**
  * Topic shape:
- * { id, title, authorId, votes: number, voters: Set<participantId>, column: 'todo'|'doing'|'done', createdAt }
+ * { id, title, authorId, votes: number, voters: Map<participantId, number>, column: 'todo'|'doing'|'done', createdAt }
  */
 
 app.use(express.json());
@@ -63,6 +158,7 @@ app.post('/api/create', (req, res) => {
     topics: [],
     participants: new Set(),
     votesByParticipant: new Map(),
+    maxVotesPerParticipant: DEFAULT_MAX_VOTES_PER_PARTICIPANT,
     durations: { create: DEFAULT_CREATE_MIN, voting: DEFAULT_VOTING_MIN, discuss: DEFAULT_DISCUSS_MIN }, // minutes
     phase: null, // 'create' | 'voting' | 'discuss' | null
     phaseEndsAt: null,
@@ -100,6 +196,7 @@ app.post('/api/create-with-id', (req, res) => {
     topics: [],
     participants: new Set(),
     votesByParticipant: new Map(),
+    maxVotesPerParticipant: DEFAULT_MAX_VOTES_PER_PARTICIPANT,
     durations: { create: DEFAULT_CREATE_MIN, voting: DEFAULT_VOTING_MIN, discuss: DEFAULT_DISCUSS_MIN },
     phase: null,
     phaseEndsAt: null,
@@ -150,6 +247,12 @@ app.get('/join/:id', (req, res) => {
 });
 
 function meetingStateForClient(meeting) {
+  const totalVotesCast = Array.from(meeting.votesByParticipant.values()).reduce((acc, rec) => {
+    if (!rec) return acc;
+    if (rec.total != null) return acc + rec.total;
+    if (rec.size != null) return acc + rec.size; // legacy set support
+    return acc;
+  }, 0);
   return {
     id: meeting.id,
     topics: meeting.topics.map(t => ({
@@ -162,9 +265,9 @@ function meetingStateForClient(meeting) {
     // Provide only counts for privacy
     totals: {
       participants: meeting.participants.size,
-      votesCast: Array.from(meeting.votesByParticipant.values()).reduce((acc, set) => acc + set.size, 0)
+      votesCast: totalVotesCast,
     },
-    config: { MAX_VOTES_PER_PARTICIPANT },
+    config: { maxVotesPerParticipant: meeting.maxVotesPerParticipant || DEFAULT_MAX_VOTES_PER_PARTICIPANT },
     phase: meeting.phase,
     phaseEndsAt: meeting.phaseEndsAt,
     phasePaused: meeting.phasePaused,
@@ -198,8 +301,11 @@ io.on('connection', (socket) => {
     socket.join(mid);
     socket.emit('state', meetingStateForClient(meeting));
     if (role === 'participant') {
-      const yourVotes = meeting.votesByParticipant.get(participantId) || new Set();
-      socket.emit('your_votes', { topicIds: Array.from(yourVotes), max: MAX_VOTES_PER_PARTICIPANT });
+      const yourVotes = normalizeParticipantVotes(meeting, participantId);
+      socket.emit('your_votes', {
+        topicCounts: votesRecordToPlainObject(yourVotes),
+        max: meeting.maxVotesPerParticipant || DEFAULT_MAX_VOTES_PER_PARTICIPANT,
+      });
     }
   });
 
@@ -213,7 +319,7 @@ io.on('connection', (socket) => {
       title: String(title).slice(0, 200),
       authorId,
       votes: 0,
-      voters: new Set(),
+      voters: new Map(),
       column: 'todo',
       createdAt: Date.now(),
     };
@@ -232,19 +338,25 @@ io.on('connection', (socket) => {
     if (!topic) return;
     // Use server-known participant if available
     const actualPid = (joinedMeetingId === mid && participantId) ? participantId : pid;
-    const votes = meeting.votesByParticipant.get(actualPid) || new Set();
-    if (votes.has(topicId)) return; // already voted for this topic
-    if (votes.size >= MAX_VOTES_PER_PARTICIPANT) return; // limit reached
+    const record = ensureParticipantVotes(meeting, actualPid);
+    const maxVotes = meeting.maxVotesPerParticipant || DEFAULT_MAX_VOTES_PER_PARTICIPANT;
+    if (record.total >= maxVotes) return; // limit reached
 
-    votes.add(topicId);
-    meeting.votesByParticipant.set(actualPid, votes);
+    const currentCount = record.topics.get(topicId) || 0;
+    record.topics.set(topicId, currentCount + 1);
+    record.total += 1;
+    meeting.votesByParticipant.set(actualPid, record);
     topic.votes = (topic.votes || 0) + 1;
-    topic.voters.add(actualPid);
+    if (!(topic.voters instanceof Map)) topic.voters = new Map();
+    topic.voters.set(actualPid, (topic.voters.get(actualPid) || 0) + 1);
     io.to(mid).emit('state', meetingStateForClient(meeting));
     persist();
     if (actualPid) {
-      const yourVotes = meeting.votesByParticipant.get(actualPid) || new Set();
-      socket.emit('your_votes', { topicIds: Array.from(yourVotes), max: MAX_VOTES_PER_PARTICIPANT });
+      const yourVotes = normalizeParticipantVotes(meeting, actualPid);
+      socket.emit('your_votes', {
+        topicCounts: votesRecordToPlainObject(yourVotes),
+        max: meeting.maxVotesPerParticipant || DEFAULT_MAX_VOTES_PER_PARTICIPANT,
+      });
     }
   });
 
@@ -255,16 +367,34 @@ io.on('connection', (socket) => {
     const topic = meeting.topics.find(t => t.id === topicId);
     if (!topic) return;
     const actualPid = (joinedMeetingId === mid && participantId) ? participantId : pid;
-    const votes = meeting.votesByParticipant.get(actualPid);
-    if (!votes || !votes.has(topicId)) return;
-    votes.delete(topicId);
+    const record = normalizeParticipantVotes(meeting, actualPid);
+    if (!record) return;
+    const currentCount = record.topics.get(topicId) || 0;
+    if (currentCount <= 0) return;
+    if (currentCount === 1) {
+      record.topics.delete(topicId);
+    } else {
+      record.topics.set(topicId, currentCount - 1);
+    }
+    record.total = Math.max(0, record.total - 1);
+    if (record.total === 0) {
+      meeting.votesByParticipant.delete(actualPid);
+    } else {
+      meeting.votesByParticipant.set(actualPid, record);
+    }
     topic.votes = Math.max(0, (topic.votes || 0) - 1);
-    topic.voters.delete(actualPid);
+    if (topic.voters instanceof Map) {
+      if (currentCount <= 1) topic.voters.delete(actualPid);
+      else topic.voters.set(actualPid, currentCount - 1);
+    }
     io.to(mid).emit('state', meetingStateForClient(meeting));
     persist();
     if (actualPid) {
-      const yourVotes = meeting.votesByParticipant.get(actualPid) || new Set();
-      socket.emit('your_votes', { topicIds: Array.from(yourVotes), max: MAX_VOTES_PER_PARTICIPANT });
+      const yourVotes = normalizeParticipantVotes(meeting, actualPid);
+      socket.emit('your_votes', {
+        topicCounts: votesRecordToPlainObject(yourVotes),
+        max: meeting.maxVotesPerParticipant || DEFAULT_MAX_VOTES_PER_PARTICIPANT,
+      });
     }
   });
 
@@ -295,8 +425,15 @@ io.on('connection', (socket) => {
     if (!authorized) return;
     meeting.topics = meeting.topics.filter(t => t.id !== topicId);
     // Remove votes pointing to this topic
-    for (const set of meeting.votesByParticipant.values()) {
-      if (set.has(topicId)) set.delete(topicId);
+    for (const [pid, record] of meeting.votesByParticipant.entries()) {
+      const normalized = normalizeVoteRecordValue(record);
+      const count = normalized.topics.get(topicId) || 0;
+      if (count > 0) {
+        normalized.topics.delete(topicId);
+        normalized.total = Math.max(0, normalized.total - count);
+        if (normalized.total === 0) meeting.votesByParticipant.delete(pid);
+        else meeting.votesByParticipant.set(pid, normalized);
+      }
     }
     if (meeting.currentTopicId === topicId) {
       meeting.currentTopicId = null;
@@ -325,6 +462,20 @@ io.on('connection', (socket) => {
     if (create != null) d.create = toMin(create, d.create);
     if (voting != null) d.voting = toMin(voting, d.voting);
     if (discuss != null) d.discuss = toMin(discuss, d.discuss);
+    io.to(mid).emit('state', meetingStateForClient(meeting));
+    persist();
+  });
+
+  socket.on('set_vote_limit', ({ meetingId, adminToken, maxVotes }) => {
+    const mid = (meetingId || '').toUpperCase();
+    const meeting = meetings.get(mid);
+    if (!meeting) return;
+    const authorized = adminToken && adminToken === meeting.adminToken;
+    if (!authorized) return;
+    const n = parseInt(maxVotes, 10);
+    if (!Number.isFinite(n)) return;
+    const clamped = Math.max(1, Math.min(10, n));
+    meeting.maxVotesPerParticipant = clamped;
     io.to(mid).emit('state', meetingStateForClient(meeting));
     persist();
   });
@@ -442,7 +593,10 @@ function serialize() {
         id: t.id, title: t.title, votes: t.votes, column: t.column, createdAt: t.createdAt,
       })),
       participants: Array.from(m.participants),
-      votesByParticipant: Array.from(m.votesByParticipant.entries()).map(([pid, set]) => [pid, Array.from(set)]),
+      votesByParticipant: Array.from(m.votesByParticipant.entries()).map(([pid, record]) => {
+        const normalized = normalizeVoteRecordValue(record);
+        return [pid, { total: normalized.total, topics: Array.from(normalized.topics.entries()) }];
+      }),
       durations: m.durations,
       phase: m.phase,
       phaseEndsAt: m.phaseEndsAt,
@@ -450,6 +604,7 @@ function serialize() {
       phaseRemainingMs: m.phaseRemainingMs,
       currentTopicId: m.currentTopicId,
       createdAt: m.createdAt,
+      maxVotesPerParticipant: m.maxVotesPerParticipant,
     };
   }
   return out;
@@ -473,9 +628,12 @@ function restore() {
       const meeting = {
         id: m.id,
         adminToken: m.adminToken,
-        topics: (m.topics || []).map(t => ({ ...t, voters: new Set() })),
+        topics: (m.topics || []).map(t => ({ ...t, voters: new Map() })),
         participants: new Set(m.participants || []),
-        votesByParticipant: new Map((m.votesByParticipant || []).map(([pid, arr]) => [pid, new Set(arr)])),
+        votesByParticipant: new Map((m.votesByParticipant || []).map(([pid, value]) => {
+          const normalized = normalizeVoteRecordValue(value);
+          return [pid, normalized];
+        })),
         durations: m.durations || { create: DEFAULT_CREATE_MIN, voting: DEFAULT_VOTING_MIN, discuss: DEFAULT_DISCUSS_MIN },
         phase: m.phase || null,
         phaseEndsAt: m.phaseEndsAt || null,
@@ -483,6 +641,7 @@ function restore() {
         phaseRemainingMs: m.phaseRemainingMs || null,
         currentTopicId: m.currentTopicId || null,
         createdAt: m.createdAt || Date.now(),
+        maxVotesPerParticipant: m.maxVotesPerParticipant || DEFAULT_MAX_VOTES_PER_PARTICIPANT,
       };
       // If a phase was active, reconcile timer
       if (meeting.phase) {

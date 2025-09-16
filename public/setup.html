@@ -17,6 +17,8 @@
       a.btn { text-decoration: none; display:inline-block; }
       .phase { display:grid; grid-template-columns: 1fr auto; gap: 10px; align-items:center; margin-top: 12px; }
       .phase h3 { margin: 0; }
+      .vote-limit { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:center; }
+      .vote-limit strong { color: var(--primary); }
     </style>
     <script src="/socket.io/socket.io.js"></script>
     <script src="/ui.js"></script>
@@ -42,11 +44,21 @@
         <div class="phase">
           <div>
             <h3>Voting</h3>
-            <div class="muted">Participants vote (3 votes each).</div>
+            <div class="muted">Participants vote (<span id="votesInfo">3 votes</span> each).</div>
           </div>
           <div class="row">
             <input id="durVote" type="number" min="1" max="60" value="2" />
             <span class="muted">minutes</span>
+          </div>
+        </div>
+        <div class="vote-limit">
+          <div>
+            <div class="muted">Votes allowed per participant</div>
+            <strong id="voteLimitLabel">3 votes</strong>
+          </div>
+          <div class="row">
+            <input id="voteLimit" type="number" min="1" max="10" value="3" />
+            <span class="muted">votes</span>
           </div>
         </div>
         <div class="phase">
@@ -86,9 +98,31 @@
       const durCreate = document.getElementById('durCreate');
       const durVote = document.getElementById('durVote');
       const durDiscuss = document.getElementById('durDiscuss');
+      const voteLimitInput = document.getElementById('voteLimit');
+      const voteLimitLabel = document.getElementById('voteLimitLabel');
+      const votesInfo = document.getElementById('votesInfo');
+
+      function renderVoteLimit(limit){
+        const n = Number(limit) || 3;
+        if (voteLimitInput) voteLimitInput.value = n;
+        const label = n === 1 ? '1 vote' : `${n} votes`;
+        if (voteLimitLabel) voteLimitLabel.textContent = label;
+        if (votesInfo) votesInfo.textContent = label;
+      }
+
+      if (voteLimitInput) {
+        renderVoteLimit(voteLimitInput.value);
+        voteLimitInput.addEventListener('change', () => {
+          renderVoteLimit(voteLimitInput.value);
+        });
+      }
+
       document.getElementById('saveDur').onclick = () => {
         socket.emit('set_durations', { meetingId, adminToken, create: durCreate.value, voting: durVote.value, discuss: durDiscuss.value });
-        toast('Saved timers', 'success');
+        if (voteLimitInput && voteLimitInput.value) {
+          socket.emit('set_vote_limit', { meetingId, adminToken, maxVotes: voteLimitInput.value });
+        }
+        toast('Saved settings', 'success');
       };
       document.getElementById('startCreate').onclick = () => {
         socket.emit('start_phase', { meetingId, adminToken, phase:'create', minutes: Number(durCreate.value)||undefined });
@@ -102,7 +136,11 @@
           durVote.value = state.durations.voting;
           durDiscuss.value = state.durations.discuss;
         }
+        if (state.config && typeof state.config.maxVotesPerParticipant === 'number') {
+          renderVoteLimit(state.config.maxVotesPerParticipant);
+        }
       });
+
     </script>
   </body>
   </html>

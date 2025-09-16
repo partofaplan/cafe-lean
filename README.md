@@ -3,7 +3,28 @@
 A minimal Lean Coffee board with a shared display, admin controls, and participant voting.
 
 ## Screenshots
-
+<table>
+  <tr>
+    <td width="50%">
+      <img src="demo/Screenshot_2025-09-15_at_7.58.00_PM.png" alt="Participant join view" />
+      <div><sub>Participants enter a meeting and add topics.</sub></div>
+    </td>
+    <td width="50%">
+      <img src="demo/Screenshot_2025-09-15_at_7.58.34_PM.png" alt="Admin controls" />
+      <div><sub>Facilitators configure timers and limits before the session starts.</sub></div>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <img src="demo/Screenshot_2025-09-15_at_8.20.49_PM.png" alt="Admin board" />
+      <div><sub>Admin board shows live voting tallies and lets you advance phases.</sub></div>
+    </td>
+    <td>
+      <img src="demo/IMG_4912.PNG" alt="Shared board" />
+      <div><sub>Shared display keeps everyone aligned on the active discussion.</sub></div>
+    </td>
+  </tr>
+</table>
 <div align="center">
 
 | Join — participant view | Admin settings | Admin board | Participant view |

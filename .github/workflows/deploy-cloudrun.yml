@@ -12,7 +12,7 @@ env:
   SERVICE: ${{ secrets.GCP_SERVICE }}
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: ${{ secrets.GCP_REGION }}
-  IMAGE: docker.io/${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
+  IMAGE: docker.io/${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:1.0.0-latest
 
 jobs:
   deploy:

@@ -34,6 +34,10 @@ function normalizeVoteRecordValue(value) {
     }
     return { total: value.size, topics };
   }
+  if (value?.topics instanceof Map) {
+    const sum = Array.from(value.topics.values()).reduce((acc, n) => acc + (Number(n) || 0), 0);
+    return { total: sum, topics: new Map(value.topics) };
+  }
   if (Array.isArray(value?.topics)) {
     const topics = new Map();
     for (const [topicId, count] of value.topics) {
@@ -42,9 +46,8 @@ function normalizeVoteRecordValue(value) {
         topics.set(topicId, n);
       }
     }
-    const total = Number(value.total);
     const sum = Array.from(topics.values()).reduce((acc, n) => acc + n, 0);
-    return { total: Number.isFinite(total) ? total : sum, topics };
+    return { total: sum, topics };
   }
   if (value && typeof value === 'object' && value.topics && typeof value.topics === 'object') {
     const topics = new Map();
@@ -52,9 +55,8 @@ function normalizeVoteRecordValue(value) {
       const n = Number(value.topics[key]) || 0;
       if (n > 0) topics.set(key, n);
     }
-    const total = Number(value.total);
     const sum = Array.from(topics.values()).reduce((acc, n) => acc + n, 0);
-    return { total: Number.isFinite(total) ? total : sum, topics };
+    return { total: sum, topics };
   }
   if (Array.isArray(value)) {
     const topics = new Map();
@@ -65,12 +67,7 @@ function normalizeVoteRecordValue(value) {
     }
     return { total: value.length, topics };
   }
-  const total = Number(value.total);
-  if (value.topics instanceof Map) {
-    const sum = Array.from(value.topics.values()).reduce((acc, n) => acc + (Number(n) || 0), 0);
-    return { total: Number.isFinite(total) ? total : sum, topics: new Map(value.topics) };
-  }
-  return { total: Number.isFinite(total) ? total : 0, topics: new Map() };
+  return { total: 0, topics: new Map() };
 }
 
 function normalizeParticipantVotes(meeting, participantId) {
@@ -78,6 +75,26 @@ function normalizeParticipantVotes(meeting, participantId) {
   const existing = meeting.votesByParticipant.get(participantId);
   if (!existing) return null;
   const normalized = normalizeVoteRecordValue(existing);
+  if (
+    meeting &&
+    Array.isArray(meeting.topics) &&
+    normalized &&
+    normalized.total > 0 &&
+    normalized.topics instanceof Map &&
+    normalized.topics.size === 0
+  ) {
+    let recovered = 0;
+    for (const topic of meeting.topics) {
+      if (topic && topic.voters instanceof Map) {
+        const count = Number(topic.voters.get(participantId)) || 0;
+        if (count > 0 && typeof topic.id === 'string') {
+          normalized.topics.set(topic.id, count);
+          recovered += count;
+        }
+      }
+    }
+    if (recovered > 0) normalized.total = recovered;
+  }
   meeting.votesByParticipant.set(participantId, normalized);
   return normalized;
 }
@@ -344,7 +361,13 @@ io.on('connection', (socket) => {
 
     const currentCount = record.topics.get(topicId) || 0;
     record.topics.set(topicId, currentCount + 1);
-    record.total += 1;
+    if (record.topics instanceof Map) {
+      let sum = 0;
+      for (const n of record.topics.values()) sum += Number(n) || 0;
+      record.total = sum;
+    } else {
+      record.total = Math.max(0, Number(record.total) || 0) + 1;
+    }
     meeting.votesByParticipant.set(actualPid, record);
     topic.votes = (topic.votes || 0) + 1;
     if (!(topic.voters instanceof Map)) topic.voters = new Map();
@@ -369,14 +392,27 @@ io.on('connection', (socket) => {
     const actualPid = (joinedMeetingId === mid && participantId) ? participantId : pid;
     const record = normalizeParticipantVotes(meeting, actualPid);
     if (!record) return;
-    const currentCount = record.topics.get(topicId) || 0;
+    let currentCount = record.topics.get(topicId) || 0;
+    if (currentCount <= 0 && topic.voters instanceof Map) {
+      const known = Number(topic.voters.get(actualPid)) || 0;
+      if (known > 0) {
+        currentCount = known;
+        record.topics.set(topicId, known);
+      }
+    }
     if (currentCount <= 0) return;
     if (currentCount === 1) {
       record.topics.delete(topicId);
     } else {
       record.topics.set(topicId, currentCount - 1);
     }
-    record.total = Math.max(0, record.total - 1);
+    if (record.topics instanceof Map) {
+      let sum = 0;
+      for (const n of record.topics.values()) sum += Number(n) || 0;
+      record.total = sum;
+    } else {
+      record.total = Math.max(0, record.total - 1);
+    }
     if (record.total === 0) {
       meeting.votesByParticipant.delete(actualPid);
     } else {
